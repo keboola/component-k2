@@ -1,0 +1,1 @@
+This component fetches xxxxxx data from the K2 API

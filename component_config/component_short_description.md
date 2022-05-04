@@ -1,0 +1,1 @@
+K2 is an ERP information system for managing production, inventory, financials, and more
