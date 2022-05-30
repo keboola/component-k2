@@ -1,1 +1,24 @@
-{}
+{
+      "title": "Configuration Schema",
+      "type": "object",
+      "properties": {
+            "data_object": {
+                  "propertyOrder": 40,
+                  "title": "Data object",
+                  "type": "string",
+                  "description": ""
+            },
+            "fields": {
+                  "propertyOrder": 50,
+                  "title": "Fields",
+                  "type": "string",
+                  "description": ""
+            },
+            "conditions": {
+                  "propertyOrder": 60,
+                  "title": "Conditions",
+                  "type": "string",
+                  "description": ""
+            }
+      }
+}

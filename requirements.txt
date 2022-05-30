@@ -1,5 +1,7 @@
+keboola.utils==1.1.0
 keboola.component==1.3.7
-keboola.utils
-keboola.http-client
-mock
-freezegun
+keboola.csvwriter==1.0.1
+keboola.http-client==1.0.0
+mock==4.0.3
+freezegun==1.2.1
+sshtunnel==0.4.0

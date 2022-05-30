@@ -1,17 +1,86 @@
 {
+  "title": "Configuration Schema",
   "type": "object",
-  "title": "extractor configuration",
   "required": [
-    "print_hello"
+    "username",
+    "#password"
   ],
   "properties": {
-    "print_hello": {
-      "type": "boolean",
-      "title": "Print Hello"
+    "username": {
+      "propertyOrder": 10,
+      "title": "Username",
+      "type": "string",
+      "description": ""
     },
-    "debug": {
+    "#password": {
+      "propertyOrder": 20,
+      "title": "Password",
+      "type": "string",
+      "description": "",
+      "format": "password"
+    },
+    "service_name": {
+      "propertyOrder": 30,
+      "title": "Service name",
+      "type": "string",
+      "description": ""
+    },
+    "use_ssh": {
+      "propertyOrder": 70,
+      "title": "Use ssh",
       "type": "boolean",
-      "title": "Debug"
+      "description": "",
+      "format": "checkbox",
+      "default" : false
+    },
+    "ssh": {
+      "options": {
+        "dependencies": {
+          "use_ssh": true
+        }
+      },
+      "propertyOrder": 80,
+      "title": "Ssh",
+      "type": "object",
+      "description": "",
+      "properties": {
+        "username": {
+          "propertyOrder": 10,
+          "title": "Username",
+          "type": "string"
+        },
+        "#private_key": {
+          "propertyOrder": 20,
+          "title": "Private key",
+          "type": "string"
+        },
+        "tunnel_host": {
+          "propertyOrder": 30,
+          "title": "Tunnel host",
+          "type": "string"
+        },
+        "remote_address": {
+          "propertyOrder": 40,
+          "title": "Remote address",
+          "type": "string"
+        },
+        "remote_port": {
+          "propertyOrder": 50,
+          "title": "Remote port",
+          "type": "string"
+        }
+      }
+    },
+    "source_url": {
+      "propertyOrder": 70,
+      "title": "Source url",
+      "type": "string",
+      "description": "",
+      "options": {
+        "dependencies": {
+          "use_ssh": false
+        }
+      }
     }
   }
 }
