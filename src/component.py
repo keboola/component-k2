@@ -1,5 +1,5 @@
 import logging
-
+import requests
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 from sshtunnel import SSHTunnelForwarder
@@ -79,6 +79,10 @@ class Component(ComponentBase):
                 elastic_writer.writerows(parsed_data)
         except K2ClientException as k2_exc:
             raise UserException(k2_exc) from k2_exc
+        except requests.exceptions.HTTPError as http_exc:
+            if http_exc.response.status_code == 400:
+                raise UserException("Failed to process object query, either invalid object or fields") from http_exc
+            raise UserException(http_exc) from http_exc
         table.columns = elastic_writer.fieldnames
         elastic_writer.close()
         self.write_manifest(table)
