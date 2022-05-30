@@ -44,11 +44,6 @@ class Component(ComponentBase):
         self.validate_image_parameters(REQUIRED_IMAGE_PARS)
         params = self.configuration.parameters
 
-        state = self.get_state_file()
-        previous_columns = state.get(KEY_STATE_PREVIOUS_COLUMNS)
-        if not previous_columns:
-            previous_columns = []
-
         username = params.get(KEY_USERNAME)
         password = params.get(KEY_PASSWORD)
         data_object = params.get(KEY_DATA_OBJECT)
@@ -56,6 +51,11 @@ class Component(ComponentBase):
             fields = fields.replace(" ", "")
         conditions = params.get(KEY_CONDITIONS)
         service_name = params.get(KEY_SERVICE_NAME)
+
+        state = self.get_state_file()
+        previous_columns = state.get(KEY_STATE_PREVIOUS_COLUMNS, {}).get(data_object)
+        if not previous_columns:
+            previous_columns = []
 
         if params.get(KEY_USE_SSH):
             self.create_ssh_tunnel()
@@ -69,8 +69,12 @@ class Component(ComponentBase):
         table = self.create_out_table_definition(f"{data_object}.csv")
         elastic_writer = ElasticDictWriter(table.full_path, previous_columns)
 
+        logging.info(f"Fetching data for object {data_object}")
+
         try:
-            for page_data in client.get_object_data(data_object, fields, conditions):
+            for i, page_data in enumerate(client.get_object_data(data_object, fields, conditions)):
+                if i % 100 == 0:
+                    logging.info(f"Fetching page {i}")
                 parsed_data = self.parse_object_data(page_data)
                 elastic_writer.writerows(parsed_data)
         except K2ClientException as k2_exc:
