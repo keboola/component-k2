@@ -40,7 +40,7 @@
         }
       },
       "propertyOrder": 80,
-      "title": "Ssh",
+      "title": "SSH Tunnel configuration",
       "type": "object",
       "description": "",
       "properties": {
