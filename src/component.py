@@ -15,6 +15,7 @@ KEY_FIELDS = "fields"
 KEY_CONDITIONS = "conditions"
 KEY_SOURCE_URL = "source_url"
 KEY_SERVICE_NAME = "service_name"
+KEY_INCREMENTAL = "incremental"
 
 KEY_USE_SSH = "use_ssh"
 KEY_SSH = "ssh"
@@ -64,12 +65,20 @@ class Component(ComponentBase):
         k2_address = self.get_k2_address()
 
         client = K2Client(username, password, k2_address, service_name)
-
-        # object_meta = client.get_object_meta(data_object)
-        table = self.create_out_table_definition(f"{data_object}.csv")
-        elastic_writer = ElasticDictWriter(table.full_path, previous_columns)
-
         logging.info(f"Fetching data for object {data_object}")
+
+        primary_keys = []
+        object_meta = client.get_object_meta(data_object)
+        if primary_keys_list := object_meta.get("PrimaryKeyFieldList"):
+            primary_keys = [primary_key.get("FieldName") for primary_key in primary_keys_list]
+
+        logging.info(f"Primary Keys are : {primary_keys}")
+
+        logging.info(client.estimate_amount_of_pages(data_object, self.get_id(primary_keys), fields, conditions))
+
+        table = self.create_out_table_definition(f"{data_object}.csv", primary_key=primary_keys,
+                                                 incremental=params.get(KEY_INCREMENTAL, True))
+        elastic_writer = ElasticDictWriter(table.full_path, previous_columns)
 
         try:
             for i, page_data in enumerate(client.get_object_data(data_object, fields, conditions)):
@@ -80,8 +89,6 @@ class Component(ComponentBase):
         except K2ClientException as k2_exc:
             raise UserException(k2_exc) from k2_exc
         except requests.exceptions.HTTPError as http_exc:
-            if http_exc.response.status_code == 400:
-                raise UserException("Failed to process object query, either invalid object or fields") from http_exc
             raise UserException(http_exc) from http_exc
         table.columns = elastic_writer.fieldnames
         elastic_writer.close()
@@ -121,6 +128,16 @@ class Component(ComponentBase):
             return f"http://{LOCAL_BIND_ADDRESS}:{LOCAL_BIND_PORT}"
         source_url = params.get(KEY_SOURCE_URL)
         return f"http://{source_url}" if "http://" not in source_url else source_url
+
+    @staticmethod
+    def get_id(primary_keys):
+        if "Id" in primary_keys:
+            return "Id"
+        for primary_key in primary_keys:
+            if "id" in primary_key.lower():
+                return primary_key
+        if len(primary_keys) > 0:
+            return primary_keys[0]
 
 
 if __name__ == "__main__":
