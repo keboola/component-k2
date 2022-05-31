@@ -130,13 +130,13 @@ class Component(ComponentBase):
         return f"http://{source_url}" if "http://" not in source_url else source_url
 
     @staticmethod
-    def get_id(primary_keys):
+    def get_id(primary_keys: List[str]) -> str:
         if "Id" in primary_keys:
             return "Id"
         for primary_key in primary_keys:
             if "id" in primary_key.lower():
                 return primary_key
-        if len(primary_keys) > 0:
+        if primary_keys:
             return primary_keys[0]
 
 

@@ -108,7 +108,7 @@ class K2Client(HttpClient):
             parameters["conditions"] = conditions
         return parameters
 
-    def _generate_object_request_url(self, object_name, parameters):
+    def _generate_object_request_url(self, object_name: str, parameters: Dict) -> str:
         encoded_params = urllib.parse.urlencode(parameters)
         return f"{self.base_url}Data/{object_name}?{encoded_params}"
 
@@ -122,7 +122,7 @@ class K2Client(HttpClient):
         return base_44_encoded_hash.decode()
 
     @staticmethod
-    def _handle_http_error(response):
+    def _handle_http_error(response: requests.Response) -> None:
         try:
             response.raise_for_status()
         except requests.HTTPError as e:
@@ -139,7 +139,7 @@ class K2Client(HttpClient):
                 f"{response_error.get('error')}. Exception code {response_error.get('code')}") from e
 
     # override to continue on failure
-    def _requests_retry_session(self, session=None):
+    def _requests_retry_session(self, session=None) -> requests.Session:
         session = session or requests.Session()
         retry = Retry(
             total=self.max_retries,
