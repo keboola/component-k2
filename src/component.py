@@ -1,6 +1,8 @@
 import logging
 import requests
 import paramiko
+import base64
+import binascii
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 from sshtunnel import SSHTunnelForwarder
@@ -108,13 +110,7 @@ class Component(ComponentBase):
     def create_ssh_tunnel(self) -> None:
         params = self.configuration.parameters
         ssh = params.get(KEY_SSH)
-        ssh_private_key_data = ssh.get(KEY_SSH_PRIVATE_KEY)
-        self.validate_ssh_private_key(ssh_private_key_data)
-
-        try:
-            pkey_from_input = paramiko.RSAKey.from_private_key(StringIO(ssh_private_key_data))
-        except paramiko.ssh_exception.SSHException as pkey_error:
-            raise UserException("Invalid private key string")from pkey_error
+        private_key = self.get_private_key(ssh.get(KEY_SSH_PRIVATE_KEY))
         ssh_tunnel_host = ssh.get(KEY_SSH_TUNNEL_HOST)
         ssh_remote_address = ssh.get(KEY_SSH_REMOTE_ADDRESS)
         try:
@@ -124,7 +120,7 @@ class Component(ComponentBase):
         ssh_username = ssh.get(KEY_SSH_USERNAME)
 
         self.ssh_server = SSHTunnelForwarder(ssh_address_or_host=ssh_tunnel_host,
-                                             ssh_pkey=pkey_from_input,
+                                             ssh_pkey=private_key,
                                              ssh_username=ssh_username,
                                              remote_bind_address=(ssh_remote_address, ssh_remote_port),
                                              local_bind_address=(LOCAL_BIND_ADDRESS, LOCAL_BIND_PORT),
@@ -156,6 +152,19 @@ class Component(ComponentBase):
         if "\n" not in ssh_private_key:
             raise UserException("SSH Private key is invalid, "
                                 "make sure it \\n characters as new lines")
+
+    def get_private_key(self, b64_input_key):
+        try:
+            input_key = base64.b64decode(b64_input_key, validate=True).decode('utf-8')
+        except binascii.Error as bin_err:
+            raise UserException(f'Failed to base64-decode the private key,'
+                                f' confirm you have base64-encoded your private key input variable. '
+                                f'Detail: {bin_err}') from bin_err
+        self.validate_ssh_private_key(input_key)
+        try:
+            return paramiko.RSAKey.from_private_key(StringIO(input_key))
+        except paramiko.ssh_exception.SSHException as pkey_error:
+            raise UserException("Invalid private key")from pkey_error
 
 
 if __name__ == "__main__":
