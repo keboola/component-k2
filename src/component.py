@@ -108,14 +108,13 @@ class Component(ComponentBase):
     def create_ssh_tunnel(self) -> None:
         params = self.configuration.parameters
         ssh = params.get(KEY_SSH)
-        ssh_private_key_data = ssh.get(KEY_SSH_PRIVATE_KEY).replace("\r\n", "\n") \
-            .replace(" -----END OPENSSH PRIVATE KEY-----", "\n-----END OPENSSH PRIVATE KEY-----")
+        ssh_private_key_data = ssh.get(KEY_SSH_PRIVATE_KEY)
         self.validate_ssh_private_key(ssh_private_key_data)
 
         try:
             pkey_from_input = paramiko.RSAKey.from_private_key(StringIO(ssh_private_key_data))
         except paramiko.ssh_exception.SSHException as pkey_error:
-            raise UserException(pkey_error)from pkey_error
+            raise UserException("Invalid private key string")from pkey_error
         ssh_tunnel_host = ssh.get(KEY_SSH_TUNNEL_HOST)
         ssh_remote_address = ssh.get(KEY_SSH_REMOTE_ADDRESS)
         try:
