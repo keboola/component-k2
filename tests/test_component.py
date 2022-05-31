@@ -22,6 +22,11 @@ class TestComponent(unittest.TestCase):
             comp = Component()
             comp.run()
 
+    # @mock.patch.dict(os.environ, {'KBC_DATADIR': 'data'})
+    # def test_run_no_cfg_fails(self):
+    #     comp = Component()
+    #     comp.run()
+
 
 if __name__ == "__main__":
     # import sys;sys.argv = ['', 'Test.testName']
