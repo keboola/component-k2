@@ -108,6 +108,7 @@ class Component(ComponentBase):
         params = self.configuration.parameters
         ssh = params.get(KEY_SSH)
         ssh_private_key = ssh.get(KEY_SSH_PRIVATE_KEY)
+        self.validate_ssh_private_key(ssh_private_key)
         ssh_tunnel_host = ssh.get(KEY_SSH_TUNNEL_HOST)
         ssh_remote_address = ssh.get(KEY_SSH_REMOTE_ADDRESS)
         try:
@@ -138,6 +139,15 @@ class Component(ComponentBase):
                 return primary_key
         if primary_keys:
             return primary_keys[0]
+
+    @staticmethod
+    def validate_ssh_private_key(ssh_private_key: str) -> None:
+        if "BEGIN OPENSSH PRIVATE KEY" not in ssh_private_key:
+            raise UserException("SSH Private key is invalid, "
+                                "make sure it contains the string BEGIN OPENSSH PRIVATE KEY")
+        if "\n" not in ssh_private_key:
+            raise UserException("SSH Private key is invalid, "
+                                "make sure it \\n characters as new lines")
 
 
 if __name__ == "__main__":
