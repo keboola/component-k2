@@ -108,6 +108,7 @@ class Component(ComponentBase):
         params = self.configuration.parameters
         ssh = params.get(KEY_SSH)
         ssh_private_key = ssh.get(KEY_SSH_PRIVATE_KEY)
+        ssh_private_key = ssh_private_key.replace("\r\n", "\n")
         self.validate_ssh_private_key(ssh_private_key)
         ssh_tunnel_host = ssh.get(KEY_SSH_TUNNEL_HOST)
         ssh_remote_address = ssh.get(KEY_SSH_REMOTE_ADDRESS)
