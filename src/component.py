@@ -1,10 +1,12 @@
 import logging
 import requests
+import paramiko
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 from sshtunnel import SSHTunnelForwarder
 from keboola.csvwriter import ElasticDictWriter
 from typing import List
+from io import StringIO
 
 from client import K2Client, K2ClientException
 
@@ -107,7 +109,10 @@ class Component(ComponentBase):
     def create_ssh_tunnel(self) -> None:
         params = self.configuration.parameters
         ssh = params.get(KEY_SSH)
-        ssh_private_key = self.create_pkey_file(ssh.get(KEY_SSH_PRIVATE_KEY))
+        ssh_private_key_data = ssh.get(KEY_SSH_PRIVATE_KEY).replace("\r\n", "\n") \
+            .replace(" -----END OPENSSH PRIVATE KEY-----", "\n-----END OPENSSH PRIVATE KEY-----")
+        self.validate_ssh_private_key(ssh_private_key_data)
+        pkey_from_input = paramiko.RSAKey.from_private_key(StringIO(ssh_private_key_data))
         ssh_tunnel_host = ssh.get(KEY_SSH_TUNNEL_HOST)
         ssh_remote_address = ssh.get(KEY_SSH_REMOTE_ADDRESS)
         try:
@@ -117,19 +122,12 @@ class Component(ComponentBase):
         ssh_username = ssh.get(KEY_SSH_USERNAME)
 
         self.ssh_server = SSHTunnelForwarder(ssh_address_or_host=ssh_tunnel_host,
-                                             ssh_pkey=ssh_private_key,
+                                             ssh_pkey=pkey_from_input,
                                              ssh_username=ssh_username,
                                              remote_bind_address=(ssh_remote_address, ssh_remote_port),
-                                             local_bind_address=(LOCAL_BIND_ADDRESS, LOCAL_BIND_PORT))
-
-    def create_pkey_file(self, ssh_private_key_data):
-        ssh_private_key_data = ssh_private_key_data.replace("\r\n", "\n").replace(" -----END OPENSSH PRIVATE KEY-----",
-                                                                                  "\n-----END OPENSSH PRIVATE KEY-----")
-        self.validate_ssh_private_key(ssh_private_key_data)
-        ssh_private_key = "private_key_file"
-        with open(ssh_private_key, 'w') as ssh_private_key_file:
-            ssh_private_key_file.write(ssh_private_key_data)
-        return ssh_private_key
+                                             local_bind_address=(LOCAL_BIND_ADDRESS, LOCAL_BIND_PORT),
+                                             ssh_config_file=None,
+                                             allow_agent=False)
 
     def get_k2_address(self) -> str:
         params = self.configuration.parameters

@@ -5,3 +5,5 @@ keboola.http-client==1.0.0
 mock==4.0.3
 freezegun==1.2.1
 sshtunnel==0.4.0
+requests~=2.27.1
+paramiko~=2.10.4
