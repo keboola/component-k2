@@ -107,9 +107,7 @@ class Component(ComponentBase):
     def create_ssh_tunnel(self) -> None:
         params = self.configuration.parameters
         ssh = params.get(KEY_SSH)
-        ssh_private_key = ssh.get(KEY_SSH_PRIVATE_KEY)
-        ssh_private_key = ssh_private_key.replace("\r\n", "\n")
-        self.validate_ssh_private_key(ssh_private_key)
+        ssh_private_key = self.create_pkey_file(ssh.get(KEY_SSH_PRIVATE_KEY))
         ssh_tunnel_host = ssh.get(KEY_SSH_TUNNEL_HOST)
         ssh_remote_address = ssh.get(KEY_SSH_REMOTE_ADDRESS)
         try:
@@ -123,6 +121,15 @@ class Component(ComponentBase):
                                              ssh_username=ssh_username,
                                              remote_bind_address=(ssh_remote_address, ssh_remote_port),
                                              local_bind_address=(LOCAL_BIND_ADDRESS, LOCAL_BIND_PORT))
+
+    def create_pkey_file(self, ssh_private_key_data):
+        ssh_private_key_data = ssh_private_key_data.replace("\r\n", "\n").replace(" -----END OPENSSH PRIVATE KEY-----",
+                                                                                  "\n-----END OPENSSH PRIVATE KEY-----")
+        self.validate_ssh_private_key(ssh_private_key_data)
+        ssh_private_key = "private_key_file"
+        with open(ssh_private_key, 'w') as ssh_private_key_file:
+            ssh_private_key_file.write(ssh_private_key_data)
+        return ssh_private_key
 
     def get_k2_address(self) -> str:
         params = self.configuration.parameters
