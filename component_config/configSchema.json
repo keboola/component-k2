@@ -1,5 +1,5 @@
 {
-  "title": "Configuration Schema",
+  "title": "K2 Authorization Configuration",
   "type": "object",
   "required": [
     "username",
@@ -10,26 +10,26 @@
       "propertyOrder": 10,
       "title": "Username",
       "type": "string",
-      "description": ""
+      "description": "Username for K2"
     },
     "#password": {
       "propertyOrder": 20,
       "title": "Password",
       "type": "string",
-      "description": "",
+      "description": "Password for K2",
       "format": "password"
     },
     "service_name": {
       "propertyOrder": 30,
       "title": "Service name",
       "type": "string",
-      "description": ""
+      "description": "Name of the K2 service  http://myk2server.com/{SERVICE_NAME}"
     },
     "use_ssh": {
       "propertyOrder": 70,
       "title": "Use ssh",
       "type": "boolean",
-      "description": "",
+      "description": "If checked, an SSH tunnel will be used to call the API",
       "format": "checkbox",
       "default" : false
     },
@@ -47,28 +47,33 @@
         "username": {
           "propertyOrder": 10,
           "title": "Username",
+          "description" : "The SSH User for connecting to your SSH server",
           "type": "string"
         },
         "#private_key": {
           "propertyOrder": 20,
           "title": "Private key",
           "type": "string",
-          "format" : "password"
+          "format" : "password",
+          "description" : "The base64-encoded private key for the key pair associated with your SSH server"
         },
         "tunnel_host": {
           "propertyOrder": 30,
           "title": "Tunnel host",
-          "type": "string"
+          "type": "string",
+          "description" : "The host name or host IP associated with your SSH server (Note: Don't use load balancer as host)"
         },
         "remote_address": {
           "propertyOrder": 40,
-          "title": "Remote address",
-          "type": "string"
+          "title": "K2 API source address",
+          "type": "string",
+          "description" : "The address that is used to query the K2 API e.g. https://k2api.myfirm.cz"
         },
         "remote_port": {
           "propertyOrder": 50,
-          "title": "Remote port",
-          "type": "string"
+          "title": "K2 API port",
+          "type": "string",
+          "description" : "The port of the K2 API e.g. 8080"
         }
       }
     },

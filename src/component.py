@@ -7,7 +7,7 @@ from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 from sshtunnel import SSHTunnelForwarder
 from keboola.csvwriter import ElasticDictWriter
-from typing import List
+from typing import List, Dict
 from io import StringIO
 from client import K2Client, K2ClientException
 
@@ -83,28 +83,30 @@ class Component(ComponentBase):
                                                  incremental=params.get(KEY_INCREMENTAL, True))
         elastic_writer = ElasticDictWriter(table.full_path, previous_columns)
 
+        self.fetch_and_write_data(client, data_object, fields, conditions, elastic_writer)
+
+        table.columns = elastic_writer.fieldnames
+        elastic_writer.close()
+        self.write_manifest(table)
+
+    def fetch_and_write_data(self, client: K2Client, data_object: str, fields: str, conditions: str,
+                             elastic_writer: ElasticDictWriter) -> None:
         try:
             for i, page_data in enumerate(client.get_object_data(data_object, fields, conditions)):
                 if i % 100 == 0:
-                    logging.info(f"Fetching page {i}")
+                    logging.info(f"Fetching page {i + 1}")
                 parsed_data = self.parse_object_data(page_data)
                 elastic_writer.writerows(parsed_data)
         except K2ClientException as k2_exc:
             raise UserException(k2_exc) from k2_exc
         except requests.exceptions.HTTPError as http_exc:
             raise UserException(http_exc) from http_exc
-        table.columns = elastic_writer.fieldnames
-        elastic_writer.close()
-        self.write_manifest(table)
 
-    @staticmethod
-    def parse_object_data(data: List) -> List:
+    def parse_object_data(self, data: List) -> List:
         parsed_data = []
-        for datum in data:
-            row = {}
-            for field_values in datum.get("FieldValues"):
-                row[field_values.get("Name")] = field_values.get("Value")
-            parsed_data.append(row)
+        for row in data:
+            parsed_row = self.parse_object(row)
+            parsed_data.append(parsed_row)
         return parsed_data
 
     def create_ssh_tunnel(self) -> None:
@@ -165,6 +167,20 @@ class Component(ComponentBase):
             return paramiko.RSAKey.from_private_key(StringIO(input_key))
         except paramiko.ssh_exception.SSHException as pkey_error:
             raise UserException("Invalid private key")from pkey_error
+
+    def parse_object(self, data_object, parent_key: str = "") -> Dict:
+        parsed_object = {}
+        for field in data_object.get("FieldValues"):
+            key = self._construct_key(parent_key, "_", field.get('Name'))
+            if isinstance(field.get("Value"), dict):
+                parsed_object.update(self.parse_object(field.get("Value"), parent_key=key))
+            else:
+                parsed_object[key] = field.get("Value")
+        return parsed_object
+
+    @staticmethod
+    def _construct_key(parent_key, separator, child_key):
+        return "".join([parent_key, separator, child_key]) if parent_key else child_key
 
 
 if __name__ == "__main__":
