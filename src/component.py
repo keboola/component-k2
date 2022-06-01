@@ -197,11 +197,12 @@ class Component(ComponentBase):
     @staticmethod
     def generate_table_metadata(metadata: Dict, table_columns: List[str]) -> TableMetadata:
         tm = TableMetadata()
-        tm.add_table_description(metadata.get("Caption"))
+        if caption := metadata.get("Caption"):
+            tm.add_table_description(caption)
         column_descriptions = {}
-        for column in metadata.get("FieldList"):
+        for column in metadata.get("FieldList", {}):
             if column.get("FieldName") in table_columns:
-                column_descriptions[column.get("FieldName")] = column.get("Description")
+                column_descriptions[column.get("FieldName")] = column.get("Description", "")
         tm.add_column_descriptions(column_descriptions)
         return tm
 
