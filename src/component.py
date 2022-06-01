@@ -5,6 +5,7 @@ import base64
 import binascii
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
+from keboola.component.dao import TableMetadata
 from sshtunnel import SSHTunnelForwarder
 from keboola.csvwriter import ElasticDictWriter
 from typing import List, Dict
@@ -71,7 +72,7 @@ class Component(ComponentBase):
         logging.info(f"Fetching data for object {data_object}")
 
         primary_keys = []
-        object_meta = client.get_object_meta(data_object)
+        object_meta = self.get_object_metadata(client, data_object)
         if primary_keys_list := object_meta.get("PrimaryKeyFieldList"):
             primary_keys = [primary_key.get("FieldName") for primary_key in primary_keys_list]
 
@@ -86,6 +87,10 @@ class Component(ComponentBase):
         self.fetch_and_write_data(client, data_object, fields, conditions, elastic_writer)
 
         table.columns = elastic_writer.fieldnames
+
+        table.table_metadata = self.generate_table_metadata(metadata=object_meta,
+                                                            table_columns=elastic_writer.fieldnames)
+
         elastic_writer.close()
         self.write_manifest(table)
 
@@ -181,6 +186,24 @@ class Component(ComponentBase):
     @staticmethod
     def _construct_key(parent_key, separator, child_key):
         return "".join([parent_key, separator, child_key]) if parent_key else child_key
+
+    @staticmethod
+    def get_object_metadata(client: K2Client, data_object: str) -> Dict:
+        try:
+            return client.get_object_meta(data_object)
+        except K2ClientException as k2exc:
+            raise UserException(k2exc) from k2exc
+
+    @staticmethod
+    def generate_table_metadata(metadata: Dict, table_columns: List[str]) -> TableMetadata:
+        tm = TableMetadata()
+        tm.add_table_description(metadata.get("Caption"))
+        column_descriptions = {}
+        for column in metadata.get("FieldList"):
+            if column.get("FieldName") in table_columns:
+                column_descriptions[column.get("FieldName")] = column.get("Description")
+        tm.add_column_descriptions(column_descriptions)
+        return tm
 
 
 if __name__ == "__main__":
