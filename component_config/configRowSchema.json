@@ -6,19 +6,19 @@
                   "propertyOrder": 40,
                   "title": "Data object",
                   "type": "string",
-                  "description": ""
+                  "description": "Name of object to download from K2"
             },
             "fields": {
                   "propertyOrder": 50,
                   "title": "Fields",
                   "type": "string",
-                  "description": ""
+                  "description": "A list of the names of data fields that should be fetched, separated by comma"
             },
             "conditions": {
                   "propertyOrder": 60,
                   "title": "Conditions",
                   "type": "string",
-                  "description": ""
+                  "description": "Conditions used for filtering data. Using the format defined in the <a href='https://help.k2.cz/k2ori/02/en/10023272.htm#o106273'>K2 documentation</a>"
             }
       }
 }

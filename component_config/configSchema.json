@@ -67,7 +67,7 @@
           "propertyOrder": 40,
           "title": "K2 API source address",
           "type": "string",
-          "description" : "The address that is used to query the K2 API e.g. https://k2api.myfirm.cz"
+          "description" : "The address that is used to query the K2 API e.g. k2api.myfirm.cz"
         },
         "remote_port": {
           "propertyOrder": 50,
@@ -81,7 +81,7 @@
       "propertyOrder": 70,
       "title": "Source url",
       "type": "string",
-      "description": "",
+      "description": "The address that is used to query the K2 API, e.g. https://myk2server.com",
       "options": {
         "dependencies": {
           "use_ssh": false
