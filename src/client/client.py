@@ -29,7 +29,11 @@ class K2Client(HttpClient):
     def get_object_meta(self, object_name: str) -> Dict:
         requests_url = f"{self.base_url}Meta/{object_name}"
         auth_header = self._get_auth_header(self.username, self.password, requests_url)
-        response = requests.get(requests_url, headers=auth_header)
+        try:
+            response = requests.get(requests_url, headers=auth_header)
+        except requests.exceptions.ConnectionError as e:
+            raise K2ClientException(f"Failed to reach server {self.k2_address}") from e
+
         if response.status_code != 200:
             raise K2ClientException(
                 f"Failed to fetch object metadata because of error {response.status_code} : {response.text}")
