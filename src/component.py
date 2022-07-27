@@ -139,7 +139,9 @@ class Component(ComponentBase):
         if params.get(KEY_USE_SSH):
             return f"http://{LOCAL_BIND_ADDRESS}:{LOCAL_BIND_PORT}"
         source_url = params.get(KEY_SOURCE_URL)
-        return f"http://{source_url}" if "http://" not in source_url else source_url
+        if "https" not in source_url or "http" not in source_url:
+            raise UserException("Source Url should contain scheme : http or https")
+        return source_url
 
     @staticmethod
     def get_id(primary_keys: List[str]) -> str:
