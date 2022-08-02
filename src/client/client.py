@@ -4,6 +4,7 @@ import urllib
 import requests
 import json
 import math
+from datetime import date
 from urllib.parse import unquote
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
@@ -40,7 +41,10 @@ class K2Client(HttpClient):
         parameters = self._generate_object_request_params(fields, conditions)
         requests_url = self._generate_object_request_url(object_name, parameters)
         auth_header = self._get_auth_header(self.username, self.password, requests_url)
-        response = self.get_raw(requests_url, is_absolute_path=True, headers=auth_header)
+        try:
+            response = self.get_raw(requests_url, is_absolute_path=True, headers=auth_header)
+        except requests.exceptions.RetryError as e:
+            raise K2ClientException() from e
         first_page_response_time = response.elapsed.total_seconds()
         self._handle_http_error(response)
         first_page = json.loads(response.text)
@@ -76,6 +80,7 @@ class K2Client(HttpClient):
                f"this should take about {expected_time_for_fetching} seconds"
 
     def get_object_data(self, object_name: str, fields: Optional[str], conditions: Optional[str]) -> Generator:
+
         parameters = self._generate_object_request_params(fields, conditions)
         requests_url = self._generate_object_request_url(object_name, parameters)
         auth_header = self._get_auth_header(self.username, self.password, requests_url)
@@ -110,6 +115,7 @@ class K2Client(HttpClient):
 
     def _generate_object_request_url(self, object_name: str, parameters: Dict) -> str:
         encoded_params = urllib.parse.urlencode(parameters)
+        encoded_params = encoded_params.replace("+", "%20")
         return f"{self.base_url}Data/{object_name}?{encoded_params}"
 
     @staticmethod
@@ -127,16 +133,16 @@ class K2Client(HttpClient):
             response.raise_for_status()
         except requests.HTTPError as e:
             response_error = json.loads(e.response.text)
-            if response_error.get('code') == 400:
+            if response.status_code == 400:
                 raise K2ClientException("Failed to process object query, " f"either invalid object or fields. "
-                                        f"{response_error.get('error')}") from e
+                                        f"{response.text}") from e
 
-            if response_error.get('code') == 401:
+            if response.status_code == 401:
                 raise K2ClientException("Failed to Authorize the component, make sure your "
-                                        f"credentials and source ur are valid. {response_error.get('error')}") from e
+                                        f"credentials and source url are valid. {response.text}") from e
 
             raise K2ClientException(
-                f"{response_error.get('error')}. Exception code {response_error.get('code')}") from e
+                f"{response_error.get('error')}. Exception code {response.text}") from e
 
     # override to continue on failure
     def _requests_retry_session(self, session=None) -> requests.Session:

@@ -1,24 +1,83 @@
 {
-      "title": "Configuration Schema",
+  "title": "Configuration Schema",
+  "type": "object",
+  "properties": {
+    "data_object": {
+      "propertyOrder": 40,
+      "title": "Data object",
+      "type": "string",
+      "description": "Name of object to download from K2"
+    },
+    "fields": {
+      "propertyOrder": 50,
+      "title": "Fields",
+      "type": "string",
+      "description": "A list of the names of data fields that should be fetched, separated by comma"
+    },
+    "conditions": {
+      "propertyOrder": 60,
+      "title": "Conditions",
+      "type": "string",
+      "description": "Conditions used for filtering data. Using the format defined in the <a href='https://help.k2.cz/k2ori/02/en/10023272.htm#o106273'>K2 documentation</a>"
+    },
+    "loading_options": {
       "type": "object",
+      "title": "Loading Options",
+      "propertyOrder": 90,
+      "required": [
+        "load_type",
+        "incremental_field",
+        "date_from",
+        "date_to"
+      ],
       "properties": {
-            "data_object": {
-                  "propertyOrder": 40,
-                  "title": "Data object",
-                  "type": "string",
-                  "description": "Name of object to download from K2"
-            },
-            "fields": {
-                  "propertyOrder": 50,
-                  "title": "Fields",
-                  "type": "string",
-                  "description": "A list of the names of data fields that should be fetched, separated by comma"
-            },
-            "conditions": {
-                  "propertyOrder": 60,
-                  "title": "Conditions",
-                  "type": "string",
-                  "description": "Conditions used for filtering data. Using the format defined in the <a href='https://help.k2.cz/k2ori/02/en/10023272.htm#o106273'>K2 documentation</a>"
+        "load_type": {
+          "title": "Load type",
+          "type": "string",
+          "enum": [
+            "Full Load",
+            "Incremental load"
+          ],
+          "default": "Full Load",
+          "description": "If set to Incremental load, the result tables will be updated based on primary key and new records will be fetched. Full load overwrites the destination table each time.",
+          "propertyOrder": 100
+        },
+        "incremental_field": {
+          "title": "Incremental field",
+          "type": "string",
+          "options": {
+            "dependencies": {
+              "load_type": "Incremental load"
             }
+          },
+          "description": "Field from the K2 Object that should be used for incremental fetching; e.g. Timestamp",
+          "propertyOrder": 110
+        },
+        "date_from": {
+          "title": "Date from",
+          "type": "string",
+          "options": {
+            "dependencies": {
+              "load_type": "Incremental load"
+            }
+          },
+          "default": "last run",
+          "description": "What date to fetch data from using the incremental field; either exact date in YYYY-MM-DD format, relative date e.g. 3 days ago, or last run to fetch data since last run ",
+          "propertyOrder": 120
+        },
+        "date_to": {
+          "title": "Date to",
+          "type": "string",
+          "options": {
+            "dependencies": {
+              "load_type": "Incremental load"
+            }
+          },
+          "description":  "What date to fetch data to using the incremental field; either exact date in YYYY-MM-DD format, relative date e.g. 3 days ago, or now to fetch data till the current time",
+          "default": "now",
+          "propertyOrder": 130
+        }
       }
+    }
+  }
 }

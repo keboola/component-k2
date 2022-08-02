@@ -2,15 +2,24 @@ import logging
 import requests
 import paramiko
 import base64
+import dateparser
 import binascii
+import warnings
+from datetime import datetime
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 from keboola.component.dao import TableMetadata
 from sshtunnel import SSHTunnelForwarder
 from keboola.csvwriter import ElasticDictWriter
-from typing import List, Dict
+from typing import List, Dict, Optional
 from io import StringIO
 from client import K2Client, K2ClientException
+
+# Ignore dateparser warnings regarding pytz
+warnings.filterwarnings(
+    "ignore",
+    message="The localize method is no longer necessary, as this time zone supports the fold attribute",
+)
 
 KEY_USERNAME = "username"
 KEY_PASSWORD = "#password"
@@ -19,7 +28,12 @@ KEY_FIELDS = "fields"
 KEY_CONDITIONS = "conditions"
 KEY_SOURCE_URL = "source_url"
 KEY_SERVICE_NAME = "service_name"
-KEY_INCREMENTAL = "incremental"
+
+KEY_LOADING_OPTIONS = "loading_options"
+KEY_LOAD_TYPE = "load_type"
+KEY_INCREMENTAL_FIELD = "incremental_field"
+KEY_DATE_FROM = "date_from"
+KEY_DATE_TO = "date_to"
 
 KEY_USE_SSH = "use_ssh"
 KEY_SSH = "ssh"
@@ -30,6 +44,7 @@ KEY_SSH_REMOTE_ADDRESS = "remote_address"
 KEY_SSH_REMOTE_PORT = "remote_port"
 
 KEY_STATE_PREVIOUS_COLUMNS = "previous_columns"
+KEY_STATE_LAST_RUN = "last_run"
 
 REQUIRED_PARAMETERS = [KEY_USERNAME, KEY_PASSWORD]
 REQUIRED_IMAGE_PARS = []
@@ -61,6 +76,16 @@ class Component(ComponentBase):
         previous_columns = state.get(KEY_STATE_PREVIOUS_COLUMNS, {}).get(data_object)
         if not previous_columns:
             previous_columns = []
+        last_run = state.get(KEY_STATE_LAST_RUN)
+
+        loading_options = params.get(KEY_LOADING_OPTIONS, {})
+        load_type = loading_options.get(KEY_LOAD_TYPE)
+        incremental = True if load_type == "Incremental load" else False
+        incremental_field = loading_options.get(KEY_INCREMENTAL_FIELD) if incremental else None
+        date_from = self.get_parsed_date(loading_options.get(KEY_DATE_FROM), last_run) if incremental else None
+        date_to = self.get_parsed_date(loading_options.get(KEY_DATE_TO), last_run) if incremental else None
+
+        conditions = self.update_conditions_with_incremental_options(conditions, incremental_field, date_from, date_to)
 
         if params.get(KEY_USE_SSH):
             self.create_ssh_tunnel()
@@ -81,8 +106,11 @@ class Component(ComponentBase):
         logging.info(client.estimate_amount_of_pages(data_object, self.get_id(primary_keys), fields, conditions))
 
         table = self.create_out_table_definition(f"{data_object}.csv", primary_key=primary_keys,
-                                                 incremental=params.get(KEY_INCREMENTAL, True))
+                                                 incremental=incremental)
         elastic_writer = ElasticDictWriter(table.full_path, previous_columns)
+
+        if incremental:
+            logging.info(f"Fetching data from {date_from} to {date_to}")
 
         self.fetch_and_write_data(client, data_object, fields, conditions, elastic_writer)
 
@@ -93,6 +121,11 @@ class Component(ComponentBase):
 
         elastic_writer.close()
         self.write_manifest(table)
+
+        new_state = {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                     "previous_columns": {f"{data_object}": elastic_writer.fieldnames}}
+
+        self.write_state_file(new_state)
 
     def fetch_and_write_data(self, client: K2Client, data_object: str, fields: str, conditions: str,
                              elastic_writer: ElasticDictWriter) -> None:
@@ -106,6 +139,8 @@ class Component(ComponentBase):
             raise UserException(k2_exc) from k2_exc
         except requests.exceptions.HTTPError as http_exc:
             raise UserException(http_exc) from http_exc
+        except requests.exceptions.ConnectionError as http_exc:
+            raise UserException("Could not connect to K2 API") from http_exc
 
     def parse_object_data(self, data: List) -> List:
         parsed_data = []
@@ -205,6 +240,37 @@ class Component(ComponentBase):
                 column_descriptions[column.get("FieldName")] = column.get("Description", "")
         tm.add_column_descriptions(column_descriptions)
         return tm
+
+    @staticmethod
+    def get_parsed_date(date_input: Optional[str], last_run: Optional[str]) -> Optional[str]:
+        if not date_input:
+            parsed_date = None
+        elif date_input.lower() in ["last", "last run"] and last_run:
+            parsed_date = dateparser.parse(last_run)
+        elif date_input.lower() in ["now", "today"]:
+            parsed_date = datetime.now()
+        elif date_input.lower() in ["last", "last run"] and not last_run:
+            parsed_date = dateparser.parse("1990-01-01")
+        else:
+            try:
+                parsed_date = dateparser.parse(date_input).date()
+            except(AttributeError, TypeError) as err:
+                raise UserException(f"Cannot parse date input {date_input}") from err
+        if parsed_date:
+            parsed_date = parsed_date.strftime("%Y-%m-%d %H:%M:%S")
+        return parsed_date
+
+    @staticmethod
+    def update_conditions_with_incremental_options(conditions: str, incremental_field: str, date_from: str,
+                                                   date_to: str) -> str:
+        incremental_condition = ""
+        if incremental_field and date_from and date_to:
+            incremental_condition = f"{incremental_field};GE;{date_from},{incremental_field};LE;{date_to}"
+        if conditions:
+            conditions = f"{conditions},{incremental_condition}"
+        else:
+            conditions = incremental_condition
+        return conditions
 
 
 if __name__ == "__main__":

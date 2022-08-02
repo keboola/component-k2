@@ -1,1 +1,1 @@
-This component fetches xxxxxx data from the K2 API
+This component fetches defined data objects from the K2 API
