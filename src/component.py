@@ -254,7 +254,7 @@ class Component(ComponentBase):
         else:
             try:
                 parsed_date = dateparser.parse(date_input).date()
-            except(AttributeError, TypeError) as err:
+            except (AttributeError, TypeError) as err:
                 raise UserException(f"Cannot parse date input {date_input}") from err
         if parsed_date:
             parsed_date = parsed_date.strftime("%Y-%m-%d %H:%M:%S")
