@@ -4,7 +4,6 @@ import urllib
 import requests
 import json
 import math
-from datetime import date
 from urllib.parse import unquote
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
