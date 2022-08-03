@@ -133,8 +133,9 @@ class K2Client(HttpClient):
         except requests.HTTPError as e:
             response_error = json.loads(e.response.text)
             if response.status_code == 400:
-                raise K2ClientException("Failed to process object query, " f"either invalid object or fields. "
-                                        f"{response.text}") from e
+                raise K2ClientException(
+                    "Failed to process object query, " f"either invalid object, fields, or conditions. "
+                    f"{response.text}") from e
 
             if response.status_code == 401:
                 raise K2ClientException("Failed to Authorize the component, make sure your "

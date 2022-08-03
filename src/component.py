@@ -9,7 +9,7 @@ from datetime import datetime
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 from keboola.component.dao import TableMetadata
-from sshtunnel import SSHTunnelForwarder
+from sshtunnel import SSHTunnelForwarder, BaseSSHTunnelForwarderError
 from keboola.csvwriter import ElasticDictWriter
 from typing import List, Dict, Optional
 from io import StringIO
@@ -88,8 +88,7 @@ class Component(ComponentBase):
         conditions = self.update_conditions_with_incremental_options(conditions, incremental_field, date_from, date_to)
 
         if params.get(KEY_USE_SSH):
-            self.create_ssh_tunnel()
-            self.ssh_server.start()
+            self.create_and_start_ssh_tunnel()
 
         k2_address = self.get_k2_address()
 
@@ -103,7 +102,7 @@ class Component(ComponentBase):
 
         logging.info(f"Primary Keys are : {primary_keys}")
 
-        logging.info(client.estimate_amount_of_pages(data_object, self.get_id(primary_keys), fields, conditions))
+        self.estimate_amount_of_pages(client, data_object, primary_keys, fields, conditions)
 
         table = self.create_out_table_definition(f"{data_object}.csv", primary_key=primary_keys,
                                                  incremental=incremental)
@@ -148,26 +147,6 @@ class Component(ComponentBase):
             parsed_row = self.parse_object(row)
             parsed_data.append(parsed_row)
         return parsed_data
-
-    def create_ssh_tunnel(self) -> None:
-        params = self.configuration.parameters
-        ssh = params.get(KEY_SSH)
-        private_key = self.get_private_key(ssh.get(KEY_SSH_PRIVATE_KEY))
-        ssh_tunnel_host = ssh.get(KEY_SSH_TUNNEL_HOST)
-        ssh_remote_address = ssh.get(KEY_SSH_REMOTE_ADDRESS)
-        try:
-            ssh_remote_port = int(ssh.get(KEY_SSH_REMOTE_PORT))
-        except ValueError as v_e:
-            raise UserException("Remote port must be a valid integer") from v_e
-        ssh_username = ssh.get(KEY_SSH_USERNAME)
-
-        self.ssh_server = SSHTunnelForwarder(ssh_address_or_host=ssh_tunnel_host,
-                                             ssh_pkey=private_key,
-                                             ssh_username=ssh_username,
-                                             remote_bind_address=(ssh_remote_address, ssh_remote_port),
-                                             local_bind_address=(LOCAL_BIND_ADDRESS, LOCAL_BIND_PORT),
-                                             ssh_config_file=None,
-                                             allow_agent=False)
 
     def get_k2_address(self) -> str:
         params = self.configuration.parameters
@@ -227,7 +206,10 @@ class Component(ComponentBase):
         try:
             return client.get_object_meta(data_object)
         except K2ClientException as k2exc:
-            raise UserException(k2exc) from k2exc
+            raise UserException("Authorization is incorrect, please validate the username, "
+                                "password, service, and data object for K2") from k2exc
+        except requests.exceptions.ConnectionError as e:
+            raise UserException("Failed to connect to K2 Address and port, please validate if it is correct") from e
 
     @staticmethod
     def generate_table_metadata(metadata: Dict, table_columns: List[str]) -> TableMetadata:
@@ -272,11 +254,45 @@ class Component(ComponentBase):
             conditions = incremental_condition
         return conditions
 
+    def create_and_start_ssh_tunnel(self) -> None:
+        self._create_ssh_tunnel()
+        try:
+            self.ssh_server.start()
+        except BaseSSHTunnelForwarderError as e:
+            raise UserException(
+                "Failed to establish SSH connection. Recheck all SSH configuration parameters") from e
+
+    def _create_ssh_tunnel(self) -> None:
+        params = self.configuration.parameters
+        ssh = params.get(KEY_SSH)
+        private_key = self.get_private_key(ssh.get(KEY_SSH_PRIVATE_KEY))
+        ssh_tunnel_host = ssh.get(KEY_SSH_TUNNEL_HOST)
+        ssh_remote_address = ssh.get(KEY_SSH_REMOTE_ADDRESS)
+        try:
+            ssh_remote_port = int(ssh.get(KEY_SSH_REMOTE_PORT))
+        except ValueError as v_e:
+            raise UserException("Remote port must be a valid integer") from v_e
+        ssh_username = ssh.get(KEY_SSH_USERNAME)
+
+        self.ssh_server = SSHTunnelForwarder(ssh_address_or_host=ssh_tunnel_host,
+                                             ssh_pkey=private_key,
+                                             ssh_username=ssh_username,
+                                             remote_bind_address=(ssh_remote_address, ssh_remote_port),
+                                             local_bind_address=(LOCAL_BIND_ADDRESS, LOCAL_BIND_PORT),
+                                             ssh_config_file=None,
+                                             allow_agent=False)
+
+    def estimate_amount_of_pages(self, client: K2Client, data_object: str, primary_keys: List, fields: str,
+                                 conditions: str) -> None:
+        try:
+            logging.info(client.estimate_amount_of_pages(data_object, self.get_id(primary_keys), fields, conditions))
+        except K2ClientException as e:
+            raise UserException(e) from e
+
 
 if __name__ == "__main__":
     try:
         comp = Component()
-        # this triggers the run method by default and is controlled by the configuration.action parameter
         comp.execute_action()
     except UserException as exc:
         logging.exception(exc)
