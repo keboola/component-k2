@@ -46,7 +46,7 @@ KEY_SSH_REMOTE_PORT = "remote_port"
 KEY_STATE_PREVIOUS_COLUMNS = "previous_columns"
 KEY_STATE_LAST_RUN = "last_run"
 
-REQUIRED_PARAMETERS = [KEY_USERNAME, KEY_PASSWORD]
+REQUIRED_PARAMETERS = [KEY_USERNAME, KEY_PASSWORD, KEY_LOADING_OPTIONS, KEY_DATA_OBJECT, KEY_SERVICE_NAME]
 REQUIRED_IMAGE_PARS = []
 
 LOCAL_BIND_ADDRESS = "localhost"
@@ -87,6 +87,11 @@ class Component(ComponentBase):
 
         conditions = self.update_conditions_with_incremental_options(conditions, incremental_field, date_from, date_to)
 
+        if incremental:
+            if not incremental_field or not date_from or not date_to:
+                raise UserException("To run incremental load mode you need to specify the incremental field, "
+                                    "date from and date to")
+
         if params.get(KEY_USE_SSH):
             self.create_and_start_ssh_tunnel()
 
@@ -125,6 +130,9 @@ class Component(ComponentBase):
                      "previous_columns": {f"{data_object}": elastic_writer.fieldnames}}
 
         self.write_state_file(new_state)
+
+    def validate_parameters(self, ):
+        pass
 
     def fetch_and_write_data(self, client: K2Client, data_object: str, fields: str, conditions: str,
                              elastic_writer: ElasticDictWriter) -> None:
@@ -248,7 +256,7 @@ class Component(ComponentBase):
         incremental_condition = ""
         if incremental_field and date_from and date_to:
             incremental_condition = f"{incremental_field};GE;{date_from},{incremental_field};LE;{date_to}"
-        if conditions:
+        if conditions and incremental_condition:
             conditions = f"{conditions},{incremental_condition}"
         else:
             conditions = incremental_condition
