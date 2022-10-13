@@ -197,7 +197,7 @@ class Component(ComponentBase):
         elif is_valid:
             final_key = input_key
         else:
-            raise UserException("".join([message, message_b64]))
+            raise UserException("\n".join([message, message_b64]))
         return final_key
 
     def get_private_key(self, input_key):
