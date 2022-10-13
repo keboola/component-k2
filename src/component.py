@@ -39,6 +39,7 @@ KEY_DATE_TO = "date_to"
 KEY_USE_SSH = "use_ssh"
 KEY_SSH = "ssh"
 KEY_SSH_PRIVATE_KEY = "#private_key"
+KEY_SSH_PRIVATE_KEY_PASSWORD = "#private_key_password"
 KEY_SSH_USERNAME = "username"
 KEY_SSH_TUNNEL_HOST = "tunnel_host"
 KEY_SSH_REMOTE_ADDRESS = "remote_address"
@@ -198,10 +199,13 @@ class Component(ComponentBase):
             raise UserException("\n".join([message, message_b64]))
         return final_key
 
-    def get_private_key(self, input_key):
+    def get_private_key(self, input_key, private_key_password):
         key = self._get_decoded_key(input_key)
         try:
-            return paramiko.RSAKey.from_private_key(StringIO(key))
+            if private_key_password:
+                return paramiko.RSAKey.from_private_key(StringIO(key), password=private_key_password)
+            else:
+                return paramiko.RSAKey.from_private_key(StringIO(key))
         except paramiko.ssh_exception.SSHException as pkey_error:
             raise UserException("Invalid private key")from pkey_error
 
@@ -283,7 +287,9 @@ class Component(ComponentBase):
     def _create_ssh_tunnel(self) -> None:
         params = self.configuration.parameters
         ssh = params.get(KEY_SSH)
-        private_key = self.get_private_key(ssh.get(KEY_SSH_PRIVATE_KEY))
+        private_key = ssh.get(KEY_SSH_PRIVATE_KEY)
+        private_key_password = ssh.get(KEY_SSH_PRIVATE_KEY_PASSWORD)
+        private_key = self.get_private_key(private_key, private_key_password)
         ssh_tunnel_host = ssh.get(KEY_SSH_TUNNEL_HOST)
         ssh_remote_address = ssh.get(KEY_SSH_REMOTE_ADDRESS)
         try:

@@ -60,6 +60,13 @@
           },
           "description": "The base64-encoded private key for the key pair associated with your SSH server"
         },
+        "#private_key_password": {
+          "propertyOrder": 25,
+          "title": "Private key password",
+          "type": "string",
+          "format": "password",
+          "description": "The password for the provided private key"
+        },
         "tunnel_host": {
           "propertyOrder": 30,
           "title": "Tunnel host",
