@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import requests
 import paramiko
@@ -11,7 +12,7 @@ from keboola.component.exceptions import UserException
 from keboola.component.dao import TableMetadata
 from sshtunnel import SSHTunnelForwarder, BaseSSHTunnelForwarderError
 from keboola.csvwriter import ElasticDictWriter
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from io import StringIO
 from client import K2Client, K2ClientException
 
@@ -174,24 +175,35 @@ class Component(ComponentBase):
             return primary_keys[0]
 
     @staticmethod
-    def validate_ssh_private_key(ssh_private_key: str) -> None:
+    def validate_ssh_private_key(ssh_private_key: str) -> Tuple[bool, str]:
         if "BEGIN OPENSSH PRIVATE KEY" not in ssh_private_key:
-            raise UserException("SSH Private key is invalid, "
-                                "make sure it contains the string BEGIN OPENSSH PRIVATE KEY")
+            return False, "SSH Private key is invalid, make sure it contains the string BEGIN OPENSSH PRIVATE KEY"
         if "\n" not in ssh_private_key:
-            raise UserException("SSH Private key is invalid, "
-                                "make sure it \\n characters as new lines")
+            return False, "SSH Private key is invalid, make sure it \\n characters as new lines"
+        return True, ""
 
-    def get_private_key(self, b64_input_key):
+    def _get_decoded_key(self, input_key):
+        """
+            Have to satisfy both encoded and not encoded keys
+        """
+        b64_decoded_input_key = ""
+        with contextlib.suppress(binascii.Error):
+            b64_decoded_input_key = base64.b64decode(input_key, validate=True).decode('utf-8')
+
+        is_valid_b64, message_b64 = self.validate_ssh_private_key(b64_decoded_input_key)
+        is_valid, message = self.validate_ssh_private_key(input_key)
+        if is_valid_b64:
+            final_key = b64_decoded_input_key
+        elif is_valid:
+            final_key = input_key
+        else:
+            raise UserException("".join([message, message_b64]))
+        return final_key
+
+    def get_private_key(self, input_key):
+        key = self._get_decoded_key(input_key)
         try:
-            input_key = base64.b64decode(b64_input_key, validate=True).decode('utf-8')
-        except binascii.Error as bin_err:
-            raise UserException(f'Failed to base64-decode the private key,'
-                                f' confirm you have base64-encoded your private key input variable. '
-                                f'Detail: {bin_err}') from bin_err
-        self.validate_ssh_private_key(input_key)
-        try:
-            return paramiko.RSAKey.from_private_key(StringIO(input_key))
+            return paramiko.RSAKey.from_private_key(StringIO(key))
         except paramiko.ssh_exception.SSHException as pkey_error:
             raise UserException("Invalid private key")from pkey_error
 
