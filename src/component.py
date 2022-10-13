@@ -176,8 +176,6 @@ class Component(ComponentBase):
 
     @staticmethod
     def validate_ssh_private_key(ssh_private_key: str) -> Tuple[bool, str]:
-        if "BEGIN OPENSSH PRIVATE KEY" not in ssh_private_key:
-            return False, "SSH Private key is invalid, make sure it contains the string BEGIN OPENSSH PRIVATE KEY"
         if "\n" not in ssh_private_key:
             return False, "SSH Private key is invalid, make sure it \\n characters as new lines"
         return True, ""
