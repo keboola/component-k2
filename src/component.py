@@ -1,18 +1,20 @@
-import logging
-import requests
-import paramiko
 import base64
-import dateparser
 import binascii
+import logging
 import warnings
 from datetime import datetime
-from keboola.component.base import ComponentBase
-from keboola.component.exceptions import UserException
-from keboola.component.dao import TableMetadata
-from sshtunnel import SSHTunnelForwarder, BaseSSHTunnelForwarderError
-from keboola.csvwriter import ElasticDictWriter
-from typing import List, Dict, Optional
 from io import StringIO
+from typing import List, Dict, Optional
+
+import dateparser
+import paramiko
+import requests
+from keboola.component.base import ComponentBase
+from keboola.component.dao import TableMetadata
+from keboola.component.exceptions import UserException
+from keboola.csvwriter import ElasticDictWriter
+from sshtunnel import SSHTunnelForwarder, BaseSSHTunnelForwarderError
+
 from client import K2Client, K2ClientException
 
 # Ignore dateparser warnings regarding pytz
@@ -253,13 +255,14 @@ class Component(ComponentBase):
     @staticmethod
     def update_conditions_with_incremental_options(conditions: str, incremental_field: str, date_from: str,
                                                    date_to: str) -> str:
-        incremental_condition = ""
+
         if incremental_field and date_from and date_to:
             incremental_condition = f"{incremental_field};GE;{date_from},{incremental_field};LE;{date_to}"
-        if conditions and incremental_condition:
-            conditions = f"{conditions},{incremental_condition}"
-        else:
-            conditions = incremental_condition
+            if conditions:
+                conditions = f"{conditions},{incremental_condition}"
+            else:
+                conditions = incremental_condition
+
         return conditions
 
     def create_and_start_ssh_tunnel(self) -> None:

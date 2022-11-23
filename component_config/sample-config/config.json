@@ -19,15 +19,18 @@
     }
   },
   "parameters": {
-    "#api_token": "demo",
-    "period_from": "yesterday",
-    "endpoints": [
-      "deals",
-      "companies"
-    ],
-    "company_properties": "",
-    "deal_properties": "",
-    "debug": true
+    "use_ssh": false,
+    "username": "sssss@sssss.cz",
+    "#password": "sssssssss",
+    "source_url": "https://sssss.k2.cz",
+    "service_name": "API",
+    "debug": true,
+    "fields": "RID,TimeStamp,TransferDate,WarehouseFromId.Abbr,WarehouseToId",
+    "conditions": "RID;EQ;1234",
+    "data_object": "Pre",
+    "loading_options": {
+      "load_type": "Full Load"
+    }
   },
   "image_parameters": {
     "syrup_url": "https://syrup.keboola.com/"
