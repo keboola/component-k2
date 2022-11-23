@@ -3,9 +3,11 @@ Created on 12. 11. 2018
 
 @author: esner
 '''
-import unittest
-import mock
 import os
+import unittest
+from pathlib import Path
+
+import mock
 from freezegun import freeze_time
 
 from component import Component
@@ -22,10 +24,15 @@ class TestComponent(unittest.TestCase):
             comp = Component()
             comp.run()
 
-    # @mock.patch.dict(os.environ, {'KBC_DATADIR': 'data'})
-    # def test_run_no_cfg_fails(self):
-    #     comp = Component()
-    #     comp.run()
+    @mock.patch.dict(os.environ,
+                     {'KBC_DATADIR': Path(__file__).parent.parent.joinpath('component_config/sample-config').as_posix()})
+    def test_conditions_added_on_incremental_and_without(self):
+        comp = Component()
+        res = comp.update_conditions_with_incremental_options('condition', 'incremental', 'from', 'to')
+        self.assertEqual(res, 'condition,incremental;GE;from,incremental;LE;to')
+
+        res = comp.update_conditions_with_incremental_options('condition', None, None, None)
+        self.assertEqual(res, 'condition')
 
 
 if __name__ == "__main__":
