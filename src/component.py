@@ -1,14 +1,11 @@
-import contextlib
-import logging
-import requests
-import paramiko
 import base64
 import binascii
+import contextlib
 import logging
 import warnings
 from datetime import datetime
 from io import StringIO
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 import dateparser
 import paramiko
@@ -17,8 +14,6 @@ from keboola.component.base import ComponentBase
 from keboola.component.dao import TableMetadata
 from keboola.component.exceptions import UserException
 from keboola.csvwriter import ElasticDictWriter
-from typing import List, Dict, Optional, Tuple
-from io import StringIO
 from sshtunnel import SSHTunnelForwarder, BaseSSHTunnelForwarderError
 
 from client import K2Client, K2ClientException
