@@ -31,7 +31,7 @@
       "type": "boolean",
       "description": "If checked, an SSH tunnel will be used to call the API",
       "format": "checkbox",
-      "default" : false
+      "default": false
     },
     "ssh": {
       "options": {
@@ -47,33 +47,43 @@
         "username": {
           "propertyOrder": 10,
           "title": "Username",
-          "description" : "The SSH User for connecting to your SSH server",
+          "description": "The SSH User for connecting to your SSH server",
           "type": "string"
         },
         "#private_key": {
           "propertyOrder": 20,
           "title": "Private key",
           "type": "string",
-          "format" : "password",
-          "description" : "The base64-encoded private key for the key pair associated with your SSH server"
+          "format": "textarea",
+          "options": {
+            "input_height": "150px"
+          },
+          "description": "The base64-encoded private key for the key pair associated with your SSH server"
+        },
+        "#private_key_password": {
+          "propertyOrder": 25,
+          "title": "Private key password",
+          "type": "string",
+          "format": "password",
+          "description": "The password for the provided private key"
         },
         "tunnel_host": {
           "propertyOrder": 30,
           "title": "Tunnel host",
           "type": "string",
-          "description" : "The host name or host IP associated with your SSH server (Note: Don't use load balancer as host)"
+          "description": "The host name or host IP associated with your SSH server (Note: Don't use load balancer as host)"
         },
         "remote_address": {
           "propertyOrder": 40,
           "title": "K2 API source address",
           "type": "string",
-          "description" : "The address that is used to query the K2 API e.g. k2api.myfirm.cz"
+          "description": "The address that is used to query the K2 API e.g. k2api.myfirm.cz"
         },
         "remote_port": {
           "propertyOrder": 50,
           "title": "K2 API port",
           "type": "string",
-          "description" : "The port of the K2 API e.g. 8080"
+          "description": "The port of the K2 API e.g. 8080"
         }
       }
     },
