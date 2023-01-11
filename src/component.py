@@ -325,6 +325,8 @@ class Component(ComponentBase):
                                                 child_objects[i]["metadata"].get("PrimaryKeyFieldList")]
             child_objects[i]["fields"] = [field for field in child_objects[i]["metadata"].get("FieldList")]
             child_objects[i]["parent_primary_keys"] = primary_keys
+            parent_primary_keys = [f"{data_object}_{pk}" for pk in primary_keys]
+            child_objects[i]["primary_keys"] += parent_primary_keys
             child_objects[i]["table_definition"] = self.create_out_table_definition(
                 f"{data_object}_{child_object.get('field_name')}.csv",
                 primary_key=child_objects[i]["primary_keys"],
