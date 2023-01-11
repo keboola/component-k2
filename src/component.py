@@ -153,9 +153,11 @@ class Component(ComponentBase):
                 if i % 100 == 0:
                     logging.info(f"Fetching page {i + 1}")
                 parsed_data = self.parse_object_data(page_data, data_object, child_objects)
-                elastic_writer.writerows(parsed_data.get(data_object))
+                if parsed_data.get(data_object):
+                    elastic_writer.writerows(parsed_data.get(data_object))
                 for child_object in child_objects:
-                    child_object["writer"].writerows(parsed_data.get(child_object.get("field_name")))
+                    if parsed_data.get(child_object.get("field_name")):
+                        child_object["writer"].writerows(parsed_data.get(child_object.get("field_name")))
         except K2ClientException as k2_exc:
             raise UserException(k2_exc) from k2_exc
         except requests.exceptions.HTTPError as http_exc:
