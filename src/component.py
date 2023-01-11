@@ -16,7 +16,9 @@ from keboola.component.exceptions import UserException
 from keboola.csvwriter import ElasticDictWriter
 from sshtunnel import SSHTunnelForwarder, BaseSSHTunnelForwarderError
 
+from keboola.utils.helpers import comma_separated_values_to_list
 from client import K2Client, K2ClientException
+from k2parser import K2DataParser
 
 # Ignore dateparser warnings regarding pytz
 warnings.filterwarnings(
@@ -109,18 +111,27 @@ class Component(ComponentBase):
         if primary_keys_list := object_meta.get("PrimaryKeyFieldList"):
             primary_keys = [primary_key.get("FieldName") for primary_key in primary_keys_list]
 
+        child_objects = self.get_child_objects(client, object_meta, fields, primary_keys, data_object, incremental,
+                                               state)
+
         logging.info(f"Primary Keys are : {primary_keys}")
 
         self.estimate_amount_of_pages(client, data_object, primary_keys, fields, conditions)
 
         table = self.create_out_table_definition(f"{data_object}.csv", primary_key=primary_keys,
                                                  incremental=incremental)
+
         elastic_writer = ElasticDictWriter(table.full_path, previous_columns)
 
         if incremental:
             logging.info(f"Fetching data from {date_from} to {date_to}")
 
-        self.fetch_and_write_data(client, data_object, fields, conditions, elastic_writer)
+        self.fetch_and_write_data(client, data_object, fields, conditions, elastic_writer, child_objects)
+
+        for i, child_object in enumerate(child_objects):
+            child_objects[i]["table_definition"].columns = child_object["writer"].fieldnames
+            child_objects[i]["writer"].close()
+            self.write_manifest(child_objects[i]["table_definition"])
 
         table.columns = elastic_writer.fieldnames
 
@@ -135,17 +146,16 @@ class Component(ComponentBase):
 
         self.write_state_file(new_state)
 
-    def validate_parameters(self, ):
-        pass
-
     def fetch_and_write_data(self, client: K2Client, data_object: str, fields: str, conditions: str,
-                             elastic_writer: ElasticDictWriter) -> None:
+                             elastic_writer: ElasticDictWriter, child_objects) -> None:
         try:
             for i, page_data in enumerate(client.get_object_data(data_object, fields, conditions)):
                 if i % 100 == 0:
                     logging.info(f"Fetching page {i + 1}")
-                parsed_data = self.parse_object_data(page_data)
-                elastic_writer.writerows(parsed_data)
+                parsed_data = self.parse_object_data(page_data, data_object, child_objects)
+                elastic_writer.writerows(parsed_data.get(data_object))
+                for child_object in child_objects:
+                    child_object["writer"].writerows(parsed_data.get(child_object.get("field_name")))
         except K2ClientException as k2_exc:
             raise UserException(k2_exc) from k2_exc
         except requests.exceptions.HTTPError as http_exc:
@@ -153,19 +163,16 @@ class Component(ComponentBase):
         except requests.exceptions.ConnectionError as http_exc:
             raise UserException("Could not connect to K2 API") from http_exc
 
-    def parse_object_data(self, data: List) -> List:
-        parsed_data = []
-        for row in data:
-            parsed_row = self.parse_object(row)
-            parsed_data.append(parsed_row)
-        return parsed_data
+    @staticmethod
+    def parse_object_data(data: List, data_object, child_objects) -> dict:
+        parser = K2DataParser(child_objects=child_objects)
+        return parser.parse_data(data, data_object)
 
     def get_k2_address(self) -> str:
         params = self.configuration.parameters
         if params.get(KEY_USE_SSH):
             return f"http://{LOCAL_BIND_ADDRESS}:{LOCAL_BIND_PORT}"
-        source_url = params.get(KEY_SOURCE_URL)
-        return source_url
+        return params.get(KEY_SOURCE_URL)
 
     @staticmethod
     def get_id(primary_keys: List[str]) -> str:
@@ -210,20 +217,6 @@ class Component(ComponentBase):
                 return paramiko.RSAKey.from_private_key(StringIO(key))
         except paramiko.ssh_exception.SSHException as pkey_error:
             raise UserException("Invalid private key")from pkey_error
-
-    def parse_object(self, data_object, parent_key: str = "") -> Dict:
-        parsed_object = {}
-        for field in data_object.get("FieldValues"):
-            key = self._construct_key(parent_key, "_", field.get('Name'))
-            if isinstance(field.get("Value"), dict):
-                parsed_object.update(self.parse_object(field.get("Value"), parent_key=key))
-            else:
-                parsed_object[key] = field.get("Value")
-        return parsed_object
-
-    @staticmethod
-    def _construct_key(parent_key, separator, child_key):
-        return "".join([parent_key, separator, child_key]) if parent_key else child_key
 
     @staticmethod
     def get_object_metadata(client: K2Client, data_object: str) -> Dict:
@@ -315,6 +308,31 @@ class Component(ComponentBase):
             logging.info(client.estimate_amount_of_pages(data_object, self.get_id(primary_keys), fields, conditions))
         except K2ClientException as e:
             raise UserException(e) from e
+
+    def get_child_objects(self, client, object_meta, fields, primary_keys, data_object, incremental, state):
+        parsed_fields = comma_separated_values_to_list(fields)
+        field_objects = [field.split(".")[0] for field in parsed_fields]
+        child_objects = []
+        for parsed_field in field_objects:
+            for child in object_meta.get("ChildList", []):
+                if parsed_field == child.get("FieldName"):
+                    child_objects.append(
+                        {"class_name": child.get("ChildClassName"), "field_name": child.get("FieldName")})
+
+        for i, child_object in enumerate(child_objects):
+            child_objects[i]["metadata"] = self.get_object_metadata(client, child_object.get("class_name"))
+            child_objects[i]["primary_keys"] = [primary_key.get("FieldName") for primary_key in
+                                                child_objects[i]["metadata"].get("PrimaryKeyFieldList")]
+            child_objects[i]["fields"] = [field for field in child_objects[i]["metadata"].get("FieldList")]
+            child_objects[i]["parent_primary_keys"] = primary_keys
+            child_objects[i]["table_definition"] = self.create_out_table_definition(
+                f"{data_object}_{child_object.get('field_name')}.csv",
+                primary_key=child_objects[i]["primary_keys"],
+                incremental=incremental)
+            child_prev_columns = state.get(KEY_STATE_PREVIOUS_COLUMNS, {}).get(child_object.get('field_name'), [])
+            child_objects[i]["writer"] = ElasticDictWriter(child_objects[i]["table_definition"].full_path,
+                                                           child_prev_columns)
+        return child_objects
 
 
 if __name__ == "__main__":
