@@ -28,10 +28,12 @@ class TestComponent(unittest.TestCase):
                      {'KBC_DATADIR': Path(__file__).parent.parent.joinpath('component_config/sample-config').as_posix()})
     def test_conditions_added_on_incremental_and_without(self):
         comp = Component()
-        res = comp.update_conditions_with_incremental_options('condition', 'incremental', 'from', 'to')
+        comp.date_from = "from"
+        comp.date_to = "to"
+        res = comp._update_conditions_with_incremental_options('condition', 'incremental')
         self.assertEqual(res, 'condition,incremental;GE;from,incremental;LE;to')
 
-        res = comp.update_conditions_with_incremental_options('condition', None, None, None)
+        res = comp._update_conditions_with_incremental_options('condition', None, )
         self.assertEqual(res, 'condition')
 
 

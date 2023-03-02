@@ -1,14 +1,9 @@
-import base64
-import binascii
-import contextlib
 import logging
 import warnings
 from datetime import datetime
-from io import StringIO
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 
 import dateparser
-import paramiko
 import requests
 from keboola.component.base import ComponentBase
 from keboola.component.dao import TableMetadata
@@ -19,6 +14,10 @@ from sshtunnel import SSHTunnelForwarder, BaseSSHTunnelForwarderError
 from keboola.utils.helpers import comma_separated_values_to_list
 from client import K2Client, K2ClientException
 from k2parser import K2DataParser
+from table_handler import TableHandler
+from ssh_utils import get_private_key, SomeSSHException
+from k2_object_metadata import K2ObjectMetadata, K2_OBJECT_CLASS_NAME_KEY, K2_OBJECT_FIELD_NAME_KEY, \
+    K2_OBJECT_PARENT_CLASS_NAME_KEY, K2_OBJECT_PARENT_PRIMARY_KEYS
 
 # Ignore dateparser warnings regarding pytz
 warnings.filterwarnings(
@@ -63,101 +62,117 @@ class Component(ComponentBase):
 
     def __init__(self):
         self.ssh_server = None
+        self.client = None
+        self.state = None
+        self.new_state = {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), KEY_STATE_PREVIOUS_COLUMNS: {}}
+        self.date_to = None
+        self.date_from = None
+        self.table_handlers = {}
         super().__init__()
 
     def run(self):
         self.validate_configuration_parameters(REQUIRED_PARAMETERS)
         self.validate_image_parameters(REQUIRED_IMAGE_PARS)
+
+        self.state = self.get_state_file()
+
+        self.date_from = self._get_date_from()
+        self.date_to = self._get_date_to()
+        self._validate_fetching_mode()
+
         params = self.configuration.parameters
 
-        username = params.get(KEY_USERNAME)
-        password = params.get(KEY_PASSWORD)
-        data_object = params.get(KEY_DATA_OBJECT)
-        if fields := params.get(KEY_FIELDS):
-            fields = fields.replace(" ", "")
-        conditions = params.get(KEY_CONDITIONS)
-        service_name = params.get(KEY_SERVICE_NAME)
-
-        state = self.get_state_file()
-        previous_columns = state.get(KEY_STATE_PREVIOUS_COLUMNS, {}).get(data_object)
-        if not previous_columns:
-            previous_columns = []
-        last_run = state.get(KEY_STATE_LAST_RUN)
-
-        loading_options = params.get(KEY_LOADING_OPTIONS, {})
-        load_type = loading_options.get(KEY_LOAD_TYPE)
-        incremental = True if load_type == "Incremental load" else False
-        incremental_field = loading_options.get(KEY_INCREMENTAL_FIELD) if incremental else None
-        date_from = self.get_parsed_date(loading_options.get(KEY_DATE_FROM), last_run) if incremental else None
-        date_to = self.get_parsed_date(loading_options.get(KEY_DATE_TO), last_run) if incremental else None
-
-        conditions = self.update_conditions_with_incremental_options(conditions, incremental_field, date_from, date_to)
-
-        if incremental:
-            if not incremental_field or not date_from or not date_to:
-                raise UserException("To run incremental load mode you need to specify the incremental field, "
-                                    "date from and date to")
+        self._init_client()
 
         if params.get(KEY_USE_SSH):
-            self.create_and_start_ssh_tunnel()
+            self._create_and_start_ssh_tunnel()
 
-        k2_address = self.get_k2_address()
+        self._log_what_will_be_fetched()
 
-        client = K2Client(username, password, k2_address, service_name)
-        logging.info(f"Fetching data for object {data_object}")
+        object_to_fetch = params.get(KEY_DATA_OBJECT)
+        fields_to_fetch = self._get_fields_to_fetch()
 
-        primary_keys = []
-        object_meta = self.get_object_metadata(client, data_object)
-        if primary_keys_list := object_meta.get("PrimaryKeyFieldList"):
-            primary_keys = [primary_key.get("FieldName") for primary_key in primary_keys_list]
+        object_metadata = self._get_object_metadata(object_to_fetch)
 
-        child_objects = self.get_child_objects(client, object_meta, fields, primary_keys, data_object, incremental,
-                                               state)
+        self._init_table_handlers(object_metadata, fields_to_fetch)
+        self._fetch_and_write_data(object_metadata, fields_to_fetch)
+        self._close_table_handlers()
 
-        logging.info(f"Primary Keys are : {primary_keys}")
+        self.write_state_file(self.new_state)
 
-        self.estimate_amount_of_pages(client, data_object, primary_keys, fields, conditions)
+    def _init_client(self) -> None:
+        params = self.configuration.parameters
+        username = params.get(KEY_USERNAME)
+        password = params.get(KEY_PASSWORD)
+        k2_address = self._get_k2_address()
+        service_name = params.get(KEY_SERVICE_NAME)
 
-        table = self.create_out_table_definition(f"{data_object}.csv", primary_key=primary_keys,
-                                                 incremental=incremental)
+        self.client = K2Client(username, password, k2_address, service_name)
 
-        elastic_writer = ElasticDictWriter(table.full_path, previous_columns)
+    def _fetching_is_incremental(self) -> bool:
+        params = self.configuration.parameters
+        loading_options = params.get(KEY_LOADING_OPTIONS, {})
+        load_type = loading_options.get(KEY_LOAD_TYPE)
+        return load_type == "Incremental load"
 
-        if incremental:
-            logging.info(f"Fetching data from {date_from} to {date_to}")
+    def _get_incremental_field(self) -> Optional[str]:
+        params = self.configuration.parameters
+        loading_options = params.get(KEY_LOADING_OPTIONS, {})
+        incremental = self._fetching_is_incremental()
+        return loading_options.get(KEY_INCREMENTAL_FIELD) if incremental else None
 
-        self.fetch_and_write_data(client, data_object, fields, conditions, elastic_writer, child_objects)
+    def _get_date_from(self) -> Optional[str]:
+        params = self.configuration.parameters
+        loading_options = params.get(KEY_LOADING_OPTIONS, {})
+        incremental = self._fetching_is_incremental()
+        last_run = self.state.get(KEY_STATE_LAST_RUN)
+        return self._get_parsed_date(loading_options.get(KEY_DATE_FROM), last_run) if incremental else None
 
-        for i, child_object in enumerate(child_objects):
-            child_objects[i]["table_definition"].columns = child_object["writer"].fieldnames
-            child_objects[i]["writer"].close()
-            self.write_manifest(child_objects[i]["table_definition"])
+    def _get_date_to(self) -> Optional[str]:
+        params = self.configuration.parameters
+        loading_options = params.get(KEY_LOADING_OPTIONS, {})
+        incremental = self._fetching_is_incremental()
+        return self._get_parsed_date(loading_options.get(KEY_DATE_TO), "now") if incremental else None
 
-        table.columns = elastic_writer.fieldnames
+    def _get_fetching_conditions(self) -> str:
+        params = self.configuration.parameters
+        incremental_field = self._get_incremental_field()
+        conditions = params.get(KEY_CONDITIONS)
+        return self._update_conditions_with_incremental_options(conditions, incremental_field)
 
-        table.table_metadata = self.generate_table_metadata(metadata=object_meta,
-                                                            table_columns=elastic_writer.fieldnames)
+    def _get_fields_to_fetch(self) -> str:
+        params = self.configuration.parameters
+        if fields := params.get(KEY_FIELDS):
+            fields = fields.replace(" ", "")
+        return fields
 
-        elastic_writer.close()
-        self.write_manifest(table)
+    def _get_k2_address(self) -> str:
+        params = self.configuration.parameters
+        if params.get(KEY_USE_SSH):
+            return f"http://{LOCAL_BIND_ADDRESS}:{LOCAL_BIND_PORT}"
+        return params.get(KEY_SOURCE_URL)
 
-        new_state = {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                     "previous_columns": {f"{data_object}": elastic_writer.fieldnames}}
+    def _fetch_and_write_data(self, object_metadata: K2ObjectMetadata, fields_to_fetch: str) -> None:
+        """
+        Paginates through all data which needs to be fetched based on conditions specified in the config and
+        parses and saves all data to their respective csv tables in the data directory.
 
-        self.write_state_file(new_state)
+        Args:
+            object_metadata: Metadata of the object that will be fetched
+            fields_to_fetch: String of comma separated fields that will be fetched
 
-    def fetch_and_write_data(self, client: K2Client, data_object: str, fields: str, conditions: str,
-                             elastic_writer: ElasticDictWriter, child_objects) -> None:
+        """
+        child_object_foreign_keys = self._get_child_foreign_keys(object_metadata, fields_to_fetch)
+        object_name = object_metadata.class_name
+        conditions = self._get_fetching_conditions()
         try:
-            for i, page_data in enumerate(client.get_object_data(data_object, fields, conditions)):
-                if i % 100 == 0:
-                    logging.info(f"Fetching page {i + 1}")
-                parsed_data = self.parse_object_data(page_data, data_object, child_objects)
-                if parsed_data.get(data_object):
-                    elastic_writer.writerows(parsed_data.get(data_object))
-                for child_object in child_objects:
-                    if parsed_data.get(child_object.get("field_name")):
-                        child_object["writer"].writerows(parsed_data.get(child_object.get("field_name")))
+            for i, page_data in enumerate(self.client.get_object_data(object_name, fields_to_fetch, conditions)):
+                if i % 20 == 0:
+                    logging.info(f"Fetching page {i}")
+                parsed_data = self._parse_object_data(page_data, object_name, child_object_foreign_keys)
+                for parsed_data_name in parsed_data:
+                    if parsed_data_name in self.table_handlers:
+                        self.table_handlers[parsed_data_name].writer.writerows(parsed_data[parsed_data_name])
         except K2ClientException as k2_exc:
             raise UserException(k2_exc) from k2_exc
         except requests.exceptions.HTTPError as http_exc:
@@ -166,64 +181,13 @@ class Component(ComponentBase):
             raise UserException("Could not connect to K2 API") from http_exc
 
     @staticmethod
-    def parse_object_data(data: List, data_object, child_objects) -> dict:
-        parser = K2DataParser(child_objects=child_objects)
-        return parser.parse_data(data, data_object)
+    def _parse_object_data(k2_data: List[Dict], data_object, child_objects: Dict) -> Dict:
+        parser = K2DataParser(child_object_parent_primary_keys=child_objects)
+        return parser.parse_data(k2_data, data_object)
 
-    def get_k2_address(self) -> str:
-        params = self.configuration.parameters
-        if params.get(KEY_USE_SSH):
-            return f"http://{LOCAL_BIND_ADDRESS}:{LOCAL_BIND_PORT}"
-        return params.get(KEY_SOURCE_URL)
-
-    @staticmethod
-    def get_id(primary_keys: List[str]) -> str:
-        if "Id" in primary_keys:
-            return "Id"
-        for primary_key in primary_keys:
-            if "id" in primary_key.lower():
-                return primary_key
-        if primary_keys:
-            return primary_keys[0]
-
-    @staticmethod
-    def validate_ssh_private_key(ssh_private_key: str) -> Tuple[bool, str]:
-        if "\n" not in ssh_private_key:
-            return False, "SSH Private key is invalid, make sure it \\n characters as new lines"
-        return True, ""
-
-    def _get_decoded_key(self, input_key):
-        """
-            Have to satisfy both encoded and not encoded keys
-        """
-        b64_decoded_input_key = ""
-        with contextlib.suppress(binascii.Error):
-            b64_decoded_input_key = base64.b64decode(input_key, validate=True).decode('utf-8')
-
-        is_valid_b64, message_b64 = self.validate_ssh_private_key(b64_decoded_input_key)
-        is_valid, message = self.validate_ssh_private_key(input_key)
-        if is_valid_b64:
-            final_key = b64_decoded_input_key
-        elif is_valid:
-            final_key = input_key
-        else:
-            raise UserException("\n".join([message, message_b64]))
-        return final_key
-
-    def get_private_key(self, input_key, private_key_password):
-        key = self._get_decoded_key(input_key)
+    def _get_object_metadata(self, object_class_name: str) -> K2ObjectMetadata:
         try:
-            if private_key_password:
-                return paramiko.RSAKey.from_private_key(StringIO(key), password=private_key_password)
-            else:
-                return paramiko.RSAKey.from_private_key(StringIO(key))
-        except paramiko.ssh_exception.SSHException as pkey_error:
-            raise UserException("Invalid private key")from pkey_error
-
-    @staticmethod
-    def get_object_metadata(client: K2Client, data_object: str) -> Dict:
-        try:
-            return client.get_object_meta(data_object)
+            return K2ObjectMetadata(self.client.get_object_meta(object_class_name))
         except K2ClientException as k2exc:
             raise UserException("Authorization is incorrect, please validate the username, "
                                 "password, service, and data object for K2") from k2exc
@@ -231,19 +195,30 @@ class Component(ComponentBase):
             raise UserException("Failed to connect to K2 Address and port, please validate if it is correct") from e
 
     @staticmethod
-    def generate_table_metadata(metadata: Dict, table_columns: List[str]) -> TableMetadata:
+    def _generate_table_metadata(metadata: K2ObjectMetadata, table_columns: List[str]) -> TableMetadata:
+        """
+        Converts the metadata of a K2 object to Keboola Table metadata
+
+        Args:
+            metadata: metadata of a K2 object
+            table_columns: columns in the resulting Keboola table
+
+        Returns:
+            Table metadata generated from K2 Object metadata
+
+        """
         tm = TableMetadata()
-        if caption := metadata.get("Caption"):
-            tm.add_table_description(caption)
+        if metadata.caption:
+            tm.add_table_description(metadata.caption)
         column_descriptions = {}
-        for column in metadata.get("FieldList", {}):
-            if column.get("FieldName") in table_columns:
-                column_descriptions[column.get("FieldName")] = column.get("Description", "")
+        for column in metadata.field_definitions:
+            if column.get(K2_OBJECT_FIELD_NAME_KEY) in table_columns:
+                column_descriptions[column.get(K2_OBJECT_FIELD_NAME_KEY)] = column.get("Description", "")
         tm.add_column_descriptions(column_descriptions)
         return tm
 
     @staticmethod
-    def get_parsed_date(date_input: Optional[str], last_run: Optional[str]) -> Optional[str]:
+    def _get_parsed_date(date_input: Optional[str], last_run: Optional[str]) -> Optional[str]:
         if not date_input:
             parsed_date = None
         elif date_input.lower() in ["last", "last run"] and last_run:
@@ -261,20 +236,27 @@ class Component(ComponentBase):
             parsed_date = parsed_date.strftime("%Y-%m-%d %H:%M:%S")
         return parsed_date
 
-    @staticmethod
-    def update_conditions_with_incremental_options(conditions: str, incremental_field: str, date_from: str,
-                                                   date_to: str) -> str:
+    def _update_conditions_with_incremental_options(self, conditions: str, incremental_field: str) -> str:
+        """
+        Updates fetching conditions to contain the incremental filter so only those data are fetched.
 
-        if incremental_field and date_from and date_to:
-            incremental_condition = f"{incremental_field};GE;{date_from},{incremental_field};LE;{date_to}"
+        Args:
+            conditions: string of conditions with the format defined in
+                        https://help.k2.cz/k2ori/02/en/10023272.htm#o106273
+            incremental_field: The name of the field that is being used for incremental fetching, e.g. Timestamp
+
+        Returns: updated conditions string
+
+        """
+        if incremental_field and self.date_from and self.date_to:
+            incremental_condition = f"{incremental_field};GE;{self.date_from},{incremental_field};LE;{self.date_to}"
             if conditions:
                 conditions = f"{conditions},{incremental_condition}"
             else:
                 conditions = incremental_condition
-
         return conditions
 
-    def create_and_start_ssh_tunnel(self) -> None:
+    def _create_and_start_ssh_tunnel(self) -> None:
         self._create_ssh_tunnel()
         try:
             self.ssh_server.start()
@@ -287,7 +269,10 @@ class Component(ComponentBase):
         ssh = params.get(KEY_SSH)
         private_key = ssh.get(KEY_SSH_PRIVATE_KEY)
         private_key_password = ssh.get(KEY_SSH_PRIVATE_KEY_PASSWORD)
-        private_key = self.get_private_key(private_key, private_key_password)
+        try:
+            private_key = get_private_key(private_key, private_key_password)
+        except SomeSSHException as key_exc:
+            raise UserException from key_exc
         ssh_tunnel_host = ssh.get(KEY_SSH_TUNNEL_HOST)
         ssh_remote_address = ssh.get(KEY_SSH_REMOTE_ADDRESS)
         try:
@@ -304,39 +289,204 @@ class Component(ComponentBase):
                                              ssh_config_file=None,
                                              allow_agent=False)
 
-    def estimate_amount_of_pages(self, client: K2Client, data_object: str, primary_keys: List, fields: str,
-                                 conditions: str) -> None:
-        try:
-            logging.info(client.estimate_amount_of_pages(data_object, self.get_id(primary_keys), fields, conditions))
-        except K2ClientException as e:
-            raise UserException(e) from e
+    @staticmethod
+    def _add_parent_prefix_to_keys(parent_prefix: str, primary_keys: List[str]) -> List[str]:
+        return [f"{parent_prefix}_{pk}" for pk in primary_keys]
 
-    def get_child_objects(self, client, object_meta, fields, primary_keys, data_object, incremental, state):
-        parsed_fields = comma_separated_values_to_list(fields)
-        field_objects = [field.split(".")[0] for field in parsed_fields]
+    def _find_child_objects(self, k2_object_class_name: str, k2_object_fields: List[str]) -> List[Dict]:
+        """
+        Passes through a list of fields of a k2 object and determines which ones are child objects. Child objects are
+        then returned in a list of dictionaries.
+
+        Args:
+            k2_object_class_name: name of k2 object data is being fetched for
+            k2_object_fields: list of fields that are being fetched
+
+        Returns:
+            A list of dictionaries containing child objects Class names, Fieldnames, and the corresponding class name
+            and primary keys of the parent object of the child
+
+        """
+        object_metadata = self._get_object_metadata(k2_object_class_name)
         child_objects = []
-        for parsed_field in field_objects:
-            for child in object_meta.get("ChildList", []):
-                if parsed_field == child.get("FieldName"):
-                    child_objects.append(
-                        {"class_name": child.get("ChildClassName"), "field_name": child.get("FieldName")})
-
-        for i, child_object in enumerate(child_objects):
-            child_objects[i]["metadata"] = self.get_object_metadata(client, child_object.get("class_name"))
-            child_objects[i]["primary_keys"] = [primary_key.get("FieldName") for primary_key in
-                                                child_objects[i]["metadata"].get("PrimaryKeyFieldList")]
-            child_objects[i]["fields"] = [field for field in child_objects[i]["metadata"].get("FieldList")]
-            child_objects[i]["parent_primary_keys"] = primary_keys
-            parent_primary_keys = [f"{data_object}_{pk}" for pk in primary_keys]
-            child_objects[i]["primary_keys"] += parent_primary_keys
-            child_objects[i]["table_definition"] = self.create_out_table_definition(
-                f"{data_object}_{child_object.get('field_name')}.csv",
-                primary_key=child_objects[i]["primary_keys"],
-                incremental=incremental)
-            child_prev_columns = state.get(KEY_STATE_PREVIOUS_COLUMNS, {}).get(child_object.get('field_name'), [])
-            child_objects[i]["writer"] = ElasticDictWriter(child_objects[i]["table_definition"].full_path,
-                                                           child_prev_columns)
+        for k2_object_field in k2_object_fields:
+            if child_object := self._find_child_object(object_metadata, k2_object_field):
+                child_objects.append(child_object)
         return child_objects
+
+    def _find_child_object(self, object_metadata: K2ObjectMetadata, k2_object_field: str) -> Optional[Dict]:
+        """
+        Recursively goes through a field name to find if it is a child object.
+        A '.' signifies a parent child relationship so field name of ObjectA.ObjectB signifies that B is a child of A,
+        and we return the metadata of the B object. Once the final child object is found for the field name it is
+        returned. If the field is just a field of the object and not a child object, then None is returned.
+
+        Args:
+            object_metadata: the metadata of the parent object of the field
+            k2_object_field: the name of the field which is used to determine whether it is a child object
+
+        Returns:
+            Metadata about a child, in the form of a dictionary containing the child's Class name, Field name,
+            and the corresponding class name and primary keys of the parent object of the child
+
+        """
+        if "." in k2_object_field:
+            split_text = k2_object_field.split(".")
+
+            child_field_name = split_text[0]
+            child_class_name = object_metadata.get_child_class_name_from_field_name(child_field_name)
+
+            child_object_metadata = self._get_object_metadata(child_class_name)
+            childs_children = ".".join(split_text[1:])
+            return self._find_child_object(child_object_metadata, childs_children)
+        elif child_metadata := object_metadata.get_child_metadata(k2_object_field):
+            return child_metadata
+        else:
+            return None
+
+    def _get_child_foreign_keys(self, parent_object_metadata: K2ObjectMetadata, fields: str) -> Dict:
+        """
+        Passes through all child objects and find the primary keys of each child's parents, this data
+        is then used for parsing the data, as the parent primary keys should be saved with the child data so they can
+        be linked.
+
+        Args:
+            parent_object_metadata: metadata of the parent object of the child
+            fields: str containing fields to be fetched
+
+        Returns: A dictionary with the key as the string f"{parent class name}_{child field name}" and the value as the
+        primary keys of the parent object of the child
+
+        """
+        parsed_fields = comma_separated_values_to_list(fields)
+        child_objects = self._find_child_objects(parent_object_metadata.class_name, parsed_fields)
+        child_foreign_keys = {}
+        for child_object in child_objects:
+            parent_metadata = self._get_object_metadata(child_object.get(K2_OBJECT_PARENT_CLASS_NAME_KEY))
+            parents_primary_keys = parent_metadata.primary_key_names
+            key_name = f"{parent_metadata.class_name}_{child_object.get(K2_OBJECT_FIELD_NAME_KEY)}"
+            child_foreign_keys[key_name] = parents_primary_keys
+        return child_foreign_keys
+
+    def _validate_fetching_mode(self) -> None:
+        incremental_load = self._fetching_is_incremental()
+        incremental_field = self._get_incremental_field()
+        if incremental_load and (not incremental_field or not self.date_from or not self.date_to):
+            raise UserException("To run incremental load mode you need to specify the incremental field, "
+                                "date from and date to")
+
+    def _get_fields_from_previous_run(self, object_name: str) -> List[str]:
+        return self.state.get(KEY_STATE_PREVIOUS_COLUMNS, {}).get(object_name) or []
+
+    def _log_what_will_be_fetched(self) -> None:
+        logging.info(f"Fetching data from {self.date_from} to {self.date_to}")
+
+    def _init_table_handlers(self, object_metadata: K2ObjectMetadata, fields_to_fetch: str) -> None:
+        """
+         Initializes the main table handler and child table handlers (A Table handler is an object that holds the
+         metadata of the object to be downloaded, the table writer, and the table definition).
+         The main table handler is for the data that corresponds to the main object. The child table handlers are for
+         all the child objects of the main table data.
+         Each table handler is stored in the Table Handler dictionary variable in the component. It can be accessed by
+         the name of the table handler, the main table handler name is the Class name of the object and the
+         name of the child table handlers is the {Parent Class Name}_{Child Name}
+
+        Args:
+            object_metadata: Metadata of the object in K2 that will be fetched
+            fields_to_fetch: Comma separated list of fields of the K2 object that should be fetched, if empty, all
+                             fields will be fetched. It is possible to specify child objects in the fields
+        """
+        incremental_load = self._fetching_is_incremental()
+        self._init_main_table_handler(object_metadata, incremental_load)
+        self._init_child_table_handlers(object_metadata, fields_to_fetch, incremental_load)
+
+    def _init_main_table_handler(self, object_metadata: K2ObjectMetadata, incremental_load: bool) -> None:
+        object_name = object_metadata.class_name
+        object_fields_from_previous_run = self._get_fields_from_previous_run(object_name)
+
+        table_definition = self.create_out_table_definition(f"{object_name}.csv",
+                                                            primary_key=object_metadata.primary_keys,
+                                                            incremental=incremental_load)
+
+        writer = ElasticDictWriter(table_definition.full_path, object_fields_from_previous_run)
+        self.table_handlers[object_name] = TableHandler(table_definition=table_definition,
+                                                        writer=writer,
+                                                        object_metadata=object_metadata)
+
+    def _init_child_table_handlers(self, parent_object_metadata: K2ObjectMetadata, fields: str,
+                                   incremental: bool) -> None:
+        parsed_fields = comma_separated_values_to_list(fields)
+        child_objects = self._find_child_objects(parent_object_metadata.class_name, parsed_fields)
+
+        for child_object in child_objects:
+            self._init_child_table_handler(child_object, incremental)
+
+    def _init_child_table_handler(self, child_object: Dict, incremental: bool) -> None:
+        """
+        Initializes a table handler for a specific child object.
+        Initializes the table definition for the handler by creating a table name and finding the primary keys
+        Initializes the table writer for the handler using the table definition and columns from the state (all columns
+        from the previous run should be present in the ouptut table).
+
+        Args:
+            child_object: Metadata about a child, in the form of a dictionary containing the child's Class name,
+                          Field name, and the corresponding class name and primary keys of the parent object of
+                          the child
+            incremental: boolean value indicating whether the table should be incrementally loaded into KBC storage
+
+        """
+        parent_class_name = child_object.get(K2_OBJECT_PARENT_CLASS_NAME_KEY)
+        child_class_name = child_object.get(K2_OBJECT_CLASS_NAME_KEY)
+        child_field_name = child_object.get(K2_OBJECT_FIELD_NAME_KEY)
+        full_name = f"{parent_class_name}_{child_field_name}"
+        table_name = f"{full_name}.csv"
+
+        object_metadata = self._get_object_metadata(child_object.get(K2_OBJECT_CLASS_NAME_KEY))
+
+        parent_keys_with_prefix = self._add_parent_prefix_to_keys(parent_class_name,
+                                                                  child_object.get(K2_OBJECT_PARENT_PRIMARY_KEYS))
+        child_primary_keys = object_metadata.primary_key_names
+        child_primary_keys += parent_keys_with_prefix
+
+        child_table_definition = self.create_out_table_definition(table_name,
+                                                                  primary_key=child_primary_keys,
+                                                                  incremental=incremental)
+
+        child_prev_columns = self.state.get(KEY_STATE_PREVIOUS_COLUMNS, {}).get(child_class_name, [])
+        writer = ElasticDictWriter(child_table_definition.full_path, child_prev_columns)
+
+        self.table_handlers[full_name] = TableHandler(table_definition=child_table_definition,
+                                                      object_metadata=object_metadata,
+                                                      writer=writer)
+
+    def _close_table_handlers(self) -> None:
+        for table_handler in self.table_handlers:
+            self._close_table_handler(self.table_handlers[table_handler])
+
+    def _close_table_handler(self, table_handler: TableHandler) -> None:
+        """
+        Closes the table handler writer. Updates the table definition columns with the final columns of the writer.
+        Adds table metadata to the table definition. Writes the manifest of the table. Updates new state with the
+        columns of the table.
+
+        Args:
+            table_handler: the table handler to be closed
+
+        """
+        k2_object_name = table_handler.object_metadata.class_name
+
+        table_handler.writer.close()
+
+        final_fields = table_handler.writer.fieldnames
+        table_handler.table_definition.columns = final_fields
+
+        table_handler.table_definition.table_metadata = self._generate_table_metadata(
+            metadata=table_handler.object_metadata,
+            table_columns=final_fields)
+
+        self.write_manifest(table_handler.table_definition)
+
+        self.new_state[KEY_STATE_PREVIOUS_COLUMNS].update({f"{k2_object_name}": final_fields})
 
 
 if __name__ == "__main__":

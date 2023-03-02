@@ -9,8 +9,8 @@ class K2DataObject(Enum):
 
 
 class K2DataParser:
-    def __init__(self, child_objects):
-        self.child_objects = child_objects
+    def __init__(self, child_object_parent_primary_keys: Dict[str, List]):
+        self.child_object_parent_primary_keys = child_object_parent_primary_keys
 
     def parse_data(self, json_data: List[Dict], main_table_name: str) -> Dict:
         final_data = {}
@@ -35,7 +35,8 @@ class K2DataParser:
                 if type_of_data == K2DataObject.BASE:
                     parse_object(table_name, sub_data, table_index, parent_name)
                 elif type_of_data == K2DataObject.CHILD_TABLE:
-                    child_table_name = sub_data.get("Name")
+                    child_name = sub_data.get("Name")
+                    child_table_name = f"{customer_data.get('DOClassName')}_{child_name}"
                     parent_pkeys = self.get_parent_pkeys_from_child(child_table_name)
                     data_to_send = sub_data.get("Value").get("Items")
                     p_key_name, p_key_val = self.get_primary_key(customer_data.get("FieldValues"), parent_pkeys)
@@ -50,9 +51,11 @@ class K2DataParser:
 
         def parse_child_table(data: List[Dict], table_name: str, p_key_name: str, p_key_val: Union[str, int]):
             init_table(table_name)
+            current_child_table_len = len(table_data[table_name])
             for index, datum in enumerate(data):
-                parse_field(datum, table_name, index)
-                table_data[table_name][index][p_key_name] = p_key_val
+                table_index = current_child_table_len + index
+                parse_field(datum, table_name, table_index)
+                table_data[table_name][table_index][p_key_name] = p_key_val
 
         def parse_object(table_name: str, data: Dict, table_index: int, parent_name: str = ''):
             if len(table_data[table_name]) < table_index + 1:
@@ -60,6 +63,8 @@ class K2DataParser:
             name = data.get("Name")
             if parent_name:
                 name = f"{parent_name}_{data.get('Name')}"
+            if name in table_data[table_name][table_index]:
+                raise ValueError("Attempting to overwrite data, Parsing Failed")
             table_data[table_name][table_index][name] = data.get("Value")
 
         parse_field(data_object, main_table_name)
@@ -84,7 +89,7 @@ class K2DataParser:
         return None, None
 
     def get_parent_pkeys_from_child(self, child_table_name):
-        for child in self.child_objects:
-            if child.get("field_name") == child_table_name:
-                return child.get("parent_primary_keys")
+        for child in self.child_object_parent_primary_keys:
+            if child == child_table_name:
+                return self.child_object_parent_primary_keys[child]
         return ["RID", "ID", "Id"]
