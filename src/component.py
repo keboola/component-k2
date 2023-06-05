@@ -87,10 +87,10 @@ class Component(ComponentBase):
         if params.get(KEY_USE_SSH):
             self._create_and_start_ssh_tunnel()
 
-        self._log_what_will_be_fetched()
-
         object_to_fetch = params.get(KEY_DATA_OBJECT)
         fields_to_fetch = self._get_fields_to_fetch()
+
+        self._log_what_will_be_fetched(object_to_fetch)
 
         object_metadata = self._get_object_metadata(object_to_fetch)
 
@@ -308,13 +308,13 @@ class Component(ComponentBase):
 
         """
         object_metadata = self._get_object_metadata(k2_object_class_name)
-        child_objects = []
+        all_child_objects = []
         for k2_object_field in k2_object_fields:
-            if child_object := self._find_child_object(object_metadata, k2_object_field):
-                child_objects.append(child_object)
-        return child_objects
+            if child_objects := self._find_child_object(object_metadata, k2_object_field):
+                all_child_objects.extend(child_objects)
+        return all_child_objects
 
-    def _find_child_object(self, object_metadata: K2ObjectMetadata, k2_object_field: str) -> Optional[Dict]:
+    def _find_child_object(self, object_metadata: K2ObjectMetadata, k2_object_field: str, all_child_objects=None):
         """
         Recursively goes through a field name to find if it is a child object.
         A '.' signifies a parent child relationship so field name of ObjectA.ObjectB signifies that B is a child of A,
@@ -330,19 +330,23 @@ class Component(ComponentBase):
             and the corresponding class name and primary keys of the parent object of the child
 
         """
+        if not all_child_objects:
+            all_child_objects = []
         if "." in k2_object_field:
             split_text = k2_object_field.split(".")
+            main_field_name = split_text[0]
+            main_class_name = object_metadata.get_child_class_name_from_field_name(main_field_name)
 
-            child_field_name = split_text[0]
-            child_class_name = object_metadata.get_child_class_name_from_field_name(child_field_name)
-
-            child_object_metadata = self._get_object_metadata(child_class_name)
-            childs_children = ".".join(split_text[1:])
-            return self._find_child_object(child_object_metadata, childs_children)
-        elif child_metadata := object_metadata.get_child_metadata(k2_object_field):
-            return child_metadata
+            if main_class_name:
+                child_object_metadata = self._get_object_metadata(main_class_name)
+                all_child_objects.append(object_metadata.get_child_metadata(main_field_name))
+                childs_children = ".".join(split_text[1:])
+                self._find_child_object(child_object_metadata, childs_children, all_child_objects)
         else:
-            return None
+            child_class_name = object_metadata.get_child_class_name_from_field_name(k2_object_field)
+            if child_class_name:
+                all_child_objects.append(object_metadata.get_child_metadata(k2_object_field))
+        return all_child_objects
 
     def _get_child_foreign_keys(self, parent_object_metadata: K2ObjectMetadata, fields: str) -> Dict:
         """
@@ -378,8 +382,10 @@ class Component(ComponentBase):
     def _get_fields_from_previous_run(self, object_name: str) -> List[str]:
         return self.state.get(KEY_STATE_PREVIOUS_COLUMNS, {}).get(object_name) or []
 
-    def _log_what_will_be_fetched(self) -> None:
-        logging.info(f"Fetching data from {self.date_from} to {self.date_to}")
+    def _log_what_will_be_fetched(self, object_to_fetch) -> None:
+        logging.info(f"Fetching object : {object_to_fetch}")
+        if self._fetching_is_incremental():
+            logging.info(f"Fetching data from {self.date_from} to {self.date_to}")
 
     def _init_table_handlers(self, object_metadata: K2ObjectMetadata, fields_to_fetch: str) -> None:
         """
