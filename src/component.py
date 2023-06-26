@@ -64,11 +64,13 @@ class Component(ComponentBase):
         self.ssh_server = None
         self.client = None
         self.state = None
-        self.new_state = {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), KEY_STATE_PREVIOUS_COLUMNS: {}}
         self.date_to = None
         self.date_from = None
         self.table_handlers = {}
         super().__init__()
+
+        self.new_state = {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                          KEY_STATE_PREVIOUS_COLUMNS: self.get_state_file().get(KEY_STATE_PREVIOUS_COLUMNS)}
 
     def run(self):
         self.validate_configuration_parameters(REQUIRED_PARAMETERS)
