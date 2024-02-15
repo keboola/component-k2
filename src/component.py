@@ -67,10 +67,9 @@ class Component(ComponentBase):
         self.date_to = None
         self.date_from = None
         self.table_handlers = {}
-        super().__init__()
 
-        self.new_state = {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                          KEY_STATE_PREVIOUS_COLUMNS: self.get_state_file().get(KEY_STATE_PREVIOUS_COLUMNS)}
+        super().__init__()
+        self.new_state = self._init_new_state()
 
     def run(self):
         self.validate_configuration_parameters(REQUIRED_PARAMETERS)
@@ -110,6 +109,15 @@ class Component(ComponentBase):
         service_name = params.get(KEY_SERVICE_NAME)
 
         self.client = K2Client(username, password, k2_address, service_name)
+
+    def _init_new_state(self) -> dict:
+        statefile = self.get_state_file()
+        previous_columns_data = statefile.get(KEY_STATE_PREVIOUS_COLUMNS) if statefile else None
+        if previous_columns_data is None:
+            previous_columns_data = {}
+
+        return {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                          KEY_STATE_PREVIOUS_COLUMNS: previous_columns_data}
 
     def _fetching_is_incremental(self) -> bool:
         params = self.configuration.parameters
