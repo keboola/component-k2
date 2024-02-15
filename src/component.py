@@ -117,7 +117,7 @@ class Component(ComponentBase):
             previous_columns_data = {}
 
         return {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                          KEY_STATE_PREVIOUS_COLUMNS: previous_columns_data}
+                KEY_STATE_PREVIOUS_COLUMNS: previous_columns_data}
 
     def _fetching_is_incremental(self) -> bool:
         params = self.configuration.parameters
