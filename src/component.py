@@ -110,12 +110,13 @@ class Component(ComponentBase):
 
         self.client = K2Client(username, password, k2_address, service_name)
 
-    def _init_new_state(self) -> dict:
-        statefile = self.get_state_file()
-        previous_columns_data = statefile.get(KEY_STATE_PREVIOUS_COLUMNS) if statefile else {}
+    statefile = self.get_state_file()
+    previous_columns = statefile.get(KEY_STATE_PREVIOUS_COLUMNS) if statefile else None
+    if previous_columns is None:
+        previous_columns = {}
 
-        return {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                KEY_STATE_PREVIOUS_COLUMNS: previous_columns_data}
+    self.new_state = {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                      KEY_STATE_PREVIOUS_COLUMNS: previous_columns}
 
     def _fetching_is_incremental(self) -> bool:
         params = self.configuration.parameters
