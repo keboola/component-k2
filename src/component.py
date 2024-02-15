@@ -112,9 +112,7 @@ class Component(ComponentBase):
 
     def _init_new_state(self) -> dict:
         statefile = self.get_state_file()
-        previous_columns = statefile.get(KEY_STATE_PREVIOUS_COLUMNS) if statefile else None
-        if previous_columns is None:
-            previous_columns = {}
+        previous_columns = statefile.get(KEY_STATE_PREVIOUS_COLUMNS, {})
 
         self.new_state = {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                           KEY_STATE_PREVIOUS_COLUMNS: previous_columns}
