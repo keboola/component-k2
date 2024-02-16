@@ -114,7 +114,7 @@ class Component(ComponentBase):
         statefile = self.get_state_file()
         previous_columns = statefile.get(KEY_STATE_PREVIOUS_COLUMNS, {})
 
-        return {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),KEY_STATE_PREVIOUS_COLUMNS: previous_columns}
+        return {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), KEY_STATE_PREVIOUS_COLUMNS: previous_columns}
 
     def _fetching_is_incremental(self) -> bool:
         params = self.configuration.parameters
