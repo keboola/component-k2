@@ -487,6 +487,9 @@ class Component(ComponentBase):
 
         """
         k2_object_name = table_handler.object_metadata.class_name
+        if not k2_object_name:
+            raise UserException("K2 server did has not returned the object name in object metadata, "
+                                "please check the K2 object.")
 
         table_handler.writer.close()
 
