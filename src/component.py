@@ -114,8 +114,7 @@ class Component(ComponentBase):
         statefile = self.get_state_file()
         previous_columns = statefile.get(KEY_STATE_PREVIOUS_COLUMNS, {})
 
-        self.new_state = {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                          KEY_STATE_PREVIOUS_COLUMNS: previous_columns}
+        return {"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), KEY_STATE_PREVIOUS_COLUMNS: previous_columns}
 
     def _fetching_is_incremental(self) -> bool:
         params = self.configuration.parameters
@@ -440,7 +439,7 @@ class Component(ComponentBase):
         Initializes a table handler for a specific child object.
         Initializes the table definition for the handler by creating a table name and finding the primary keys
         Initializes the table writer for the handler using the table definition and columns from the state (all columns
-        from the previous run should be present in the ouptut table).
+        from the previous run should be present in the output table).
 
         Args:
             child_object: Metadata about a child, in the form of a dictionary containing the child's Class name,
@@ -488,6 +487,9 @@ class Component(ComponentBase):
 
         """
         k2_object_name = table_handler.object_metadata.class_name
+        if not k2_object_name:
+            raise UserException("K2 server has not returned the object name in object metadata, "
+                                "please check the K2 object.")
 
         table_handler.writer.close()
 
@@ -500,7 +502,8 @@ class Component(ComponentBase):
 
         self.write_manifest(table_handler.table_definition)
 
-        self.new_state[KEY_STATE_PREVIOUS_COLUMNS].update({f"{k2_object_name}": final_fields})
+        logging.debug(f"Saving fields for {k2_object_name}: {final_fields}")
+        self.new_state[KEY_STATE_PREVIOUS_COLUMNS][k2_object_name] = final_fields
 
 
 if __name__ == "__main__":
