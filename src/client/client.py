@@ -3,6 +3,7 @@ import base64
 import urllib
 import requests
 import json
+import logging
 from urllib.parse import unquote
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
