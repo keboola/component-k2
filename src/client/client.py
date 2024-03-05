@@ -51,6 +51,7 @@ class K2Client(HttpClient):
             self._handle_http_error(response)
             current_page = json.loads(response.text)
             next_page_url = current_page.get("NextPageURL")
+            logging.debug(f"Next page url: {next_page_url}")
             if not next_page_url:
                 last_page = True
             yield current_page.get("Items")
