@@ -177,7 +177,7 @@ class Component(ComponentBase):
                 if i % 20 == 0:
                     logging.info(f"Fetching page {i}")
                 parsed_data = self._parse_object_data(page_data, object_name, child_object_foreign_keys)
-                logging.debug(f"Received: {parsed_data}")
+                logging.info(f"Received: {parsed_data}")
                 for parsed_data_name in parsed_data:
                     if parsed_data_name in self.table_handlers:
                         self.table_handlers[parsed_data_name].writer.writerows(parsed_data[parsed_data_name])
