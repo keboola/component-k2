@@ -41,6 +41,8 @@ class K2Client(HttpClient):
         requests_url = self._generate_object_request_url(object_name, parameters)
         auth_header = self._get_auth_header(self.username, self.password, requests_url)
 
+        logging.debug(f"Using parameters: {parameters} and request url: {requests_url}")
+
         last_page = False
         next_page_url = ""
         while not last_page:
