@@ -95,7 +95,7 @@ class Component(ComponentBase):
         self._log_what_will_be_fetched(object_to_fetch)
 
         object_metadata = self._get_object_metadata(object_to_fetch)
-        logging.debug(f"Object metadata: {object_metadata}")
+        logging.debug(f"Object metadata: {object_metadata.metadata}")
 
         self._init_table_handlers(object_metadata, fields_to_fetch)
         self._fetch_and_write_data(object_metadata, fields_to_fetch)

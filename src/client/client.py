@@ -61,7 +61,7 @@ class K2Client(HttpClient):
 
     @staticmethod
     def _generate_object_request_params(fields: Optional[str], conditions: Optional[str]) -> Dict:
-        parameters = {"pageSize": PAGE_SIZE}
+        parameters: Dict = {"pageSize": PAGE_SIZE}
         if fields:
             parameters["fields"] = fields
         if conditions:
