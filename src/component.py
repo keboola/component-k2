@@ -96,6 +96,7 @@ class Component(ComponentBase):
 
         object_metadata = self._get_object_metadata(object_to_fetch)
         logging.debug(f"Object metadata: {object_metadata.metadata}")
+        logging.debug(f"Object primary key: {object_metadata.primary_keys}")
 
         self._init_table_handlers(object_metadata, fields_to_fetch)
         self._fetch_and_write_data(object_metadata, fields_to_fetch)
