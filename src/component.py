@@ -90,10 +90,12 @@ class Component(ComponentBase):
 
         object_to_fetch = params.get(KEY_DATA_OBJECT)
         fields_to_fetch = self._get_fields_to_fetch()
+        logging.debug(f"Fields to fetch: {fields_to_fetch}")
 
         self._log_what_will_be_fetched(object_to_fetch)
 
         object_metadata = self._get_object_metadata(object_to_fetch)
+        logging.debug(f"Object metadata: {object_metadata}")
 
         self._init_table_handlers(object_metadata, fields_to_fetch)
         self._fetch_and_write_data(object_metadata, fields_to_fetch)
@@ -495,6 +497,14 @@ class Component(ComponentBase):
 
         final_fields = table_handler.writer.fieldnames
         table_handler.table_definition.columns = final_fields
+
+        # update the primary keys in the table definition if the table does not have a column used in a primary key
+        if not set(table_handler.table_definition.primary_key).issubset(set(final_fields)):
+            logging.warning(f"Primary keys {table_handler.table_definition.primary_key} are not a subset of "
+                            f"final fields {final_fields}. Updating primary keys to match final fields.")
+            table_handler.table_definition.primary_key = [pk for pk in table_handler.table_definition.primary_key
+                                                          if pk in final_fields]
+
 
         table_handler.table_definition.table_metadata = self._generate_table_metadata(
             metadata=table_handler.object_metadata,
