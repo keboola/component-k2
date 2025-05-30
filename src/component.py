@@ -505,7 +505,6 @@ class Component(ComponentBase):
             table_handler.table_definition.primary_key = [pk for pk in table_handler.table_definition.primary_key
                                                           if pk in final_fields]
 
-
         table_handler.table_definition.table_metadata = self._generate_table_metadata(
             metadata=table_handler.object_metadata,
             table_columns=final_fields)
