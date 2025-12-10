@@ -16,6 +16,7 @@ RUN uv sync --all-groups --frozen
 COPY src/ src
 COPY tests/ tests
 COPY scripts/ scripts
+COPY component_config/ component_config
 COPY flake8.cfg .
 COPY deploy.sh .
 
