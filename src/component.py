@@ -5,6 +5,7 @@ from typing import List, Dict, Optional
 
 import dateparser
 import requests
+from requests.exceptions import Timeout, ReadTimeout, ConnectTimeout
 from keboola.component.base import ComponentBase
 from keboola.component.dao import TableMetadata
 from keboola.component.exceptions import UserException
@@ -184,6 +185,11 @@ class Component(ComponentBase):
             raise UserException(k2_exc) from k2_exc
         except requests.exceptions.HTTPError as http_exc:
             raise UserException(http_exc) from http_exc
+        except (Timeout, ReadTimeout, ConnectTimeout) as timeout_exc:
+            raise UserException(
+                "Request to K2 API timed out. The K2 server did not respond within the configured "
+                "timeout window. Please check if the K2 server is responsive and try again."
+            ) from timeout_exc
         except requests.exceptions.ConnectionError as http_exc:
             raise UserException("Could not connect to K2 API") from http_exc
 
@@ -198,6 +204,11 @@ class Component(ComponentBase):
         except K2ClientException as k2exc:
             raise UserException("Authorization is incorrect, please validate the username, "
                                 "password, service, and data object for K2") from k2exc
+        except (Timeout, ReadTimeout, ConnectTimeout) as timeout_exc:
+            raise UserException(
+                "Request to K2 API timed out while fetching object metadata. The K2 server did not "
+                "respond within the configured timeout window."
+            ) from timeout_exc
         except requests.exceptions.ConnectionError as e:
             raise UserException("Failed to connect to K2 Address and port, please validate if it is correct") from e
 

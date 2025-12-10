@@ -3,14 +3,18 @@ import base64
 import urllib
 import requests
 import json
+import logging
 from urllib.parse import unquote
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
-from typing import Generator, Dict, Optional
+from typing import Generator, Dict, Optional, Tuple
 from keboola.http_client import HttpClient
 
 BASE_URL = ""
 PAGE_SIZE = 250
+
+DEFAULT_CONNECT_TIMEOUT = 30
+DEFAULT_READ_TIMEOUT = 300
 
 
 class K2ClientException(Exception):
@@ -18,24 +22,32 @@ class K2ClientException(Exception):
 
 
 class K2Client(HttpClient):
-    def __init__(self, username: str, password: str, k2_address: str, service_name: str) -> None:
+    def __init__(
+        self,
+        username: str,
+        password: str,
+        k2_address: str,
+        service_name: str,
+        timeout: Optional[Tuple[int, int]] = None,
+    ) -> None:
         self.username = username
         self.password = password
         self.k2_address = k2_address
         self.service_name = service_name
-        super().__init__(f"{k2_address}/{service_name}", max_retries=3)
+        self.timeout = timeout or (DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT)
+        super().__init__(f"{k2_address}/{service_name}", max_retries=5, backoff_factor=1.0)
 
     def get_object_meta(self, object_name: str) -> Dict:
         requests_url = f"{self.base_url}Meta/{object_name}"
         auth_header = self._get_auth_header(self.username, self.password, requests_url)
-        response = requests.get(requests_url, headers=auth_header)
-        if response.status_code != 200:
-            raise K2ClientException(
-                f"Failed to fetch object metadata because of error {response.status_code} : {response.text}")
+        logging.debug(f"Fetching object metadata from: {requests_url}")
+        response = self.get_raw(
+            requests_url, is_absolute_path=True, headers=auth_header, timeout=self.timeout
+        )
+        self._handle_http_error(response)
         return json.loads(response.text)
 
     def get_object_data(self, object_name: str, fields: Optional[str], conditions: Optional[str]) -> Generator:
-
         parameters = self._generate_object_request_params(fields, conditions)
         requests_url = self._generate_object_request_url(object_name, parameters)
         auth_header = self._get_auth_header(self.username, self.password, requests_url)
@@ -45,9 +57,13 @@ class K2Client(HttpClient):
         while not last_page:
             if next_page_url:
                 auth_header = self._get_auth_header(self.username, self.password, next_page_url)
-                response = self.get_raw(next_page_url, is_absolute_path=True, headers=auth_header)
+                response = self.get_raw(
+                    next_page_url, is_absolute_path=True, headers=auth_header, timeout=self.timeout
+                )
             else:
-                response = self.get_raw(requests_url, is_absolute_path=True, headers=auth_header)
+                response = self.get_raw(
+                    requests_url, is_absolute_path=True, headers=auth_header, timeout=self.timeout
+                )
             self._handle_http_error(response)
             current_page = json.loads(response.text)
             next_page_url = current_page.get("NextPageURL")
@@ -100,7 +116,6 @@ class K2Client(HttpClient):
             raise K2ClientException(
                 f"{response_error.get('error')}. Exception code {response.text}") from e
 
-    # override to continue on failure
     def _requests_retry_session(self, session=None) -> requests.Session:
         session = session or requests.Session()
         retry = Retry(
@@ -108,7 +123,8 @@ class K2Client(HttpClient):
             read=self.max_retries,
             connect=self.max_retries,
             backoff_factor=self.backoff_factor,
-            status_forcelist=self.status_forcelist
+            status_forcelist=self.status_forcelist,
+            allowed_methods=self.allowed_methods,
         )
         adapter = HTTPAdapter(max_retries=retry)
         session.mount('http://', adapter)
