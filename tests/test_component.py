@@ -24,8 +24,10 @@ class TestComponent(unittest.TestCase):
             comp = Component()
             comp.run()
 
-    @mock.patch.dict(os.environ,
-                     {'KBC_DATADIR': Path(__file__).parent.parent.joinpath('component_config/sample-config').as_posix()})
+    @mock.patch.dict(
+        os.environ,
+        {'KBC_DATADIR': Path(__file__).parent.parent.joinpath(
+            'component_config/sample-config').as_posix()})
     def test_conditions_added_on_incremental_and_without(self):
         comp = Component()
         comp.date_from = "from"
