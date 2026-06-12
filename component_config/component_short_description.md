@@ -1,1 +1,1 @@
-K2 is an ERP information system for managing production, inventory, financials, and more
+Extracts data objects from the K2 ERP API.
